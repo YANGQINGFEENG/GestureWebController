@@ -70,9 +70,62 @@ def update_user(
     return user
 
 
-def list_users(db: Session, limit: int = 50, offset: int = 0) -> list[User]:
+def list_users(
+    db: Session, limit: int = 50, offset: int = 0, *, keyword: str = ""
+) -> list[User]:
     stmt = select(User).order_by(User.uid.desc()).limit(limit).offset(offset)
+    if keyword:
+        # 账号或昵称模糊匹配；SQLite 的 LIKE 对 ASCII 不区分大小写，中文按原样匹配
+        like = f"%{keyword}%"
+        stmt = stmt.where((User.username.like(like)) | (User.nickname.like(like)))
     return list(db.scalars(stmt))
+
+
+def count_users(db: Session, *, keyword: str = "") -> int:
+    stmt = select(func.count()).select_from(User)
+    if keyword:
+        like = f"%{keyword}%"
+        stmt = stmt.where((User.username.like(like)) | (User.nickname.like(like)))
+    return int(db.scalar(stmt) or 0)
+
+
+def count_records_by_uid(db: Session) -> dict[int, dict[str, int]]:
+    """每个用户三类记录的条数，后台用户表一次查完，避免 N+1。
+
+    返回 {uid: {"gesture": n, "image": n, "chat": n}}；uid 为 null 的游客记录不在其中。
+    """
+    result: dict[int, dict[str, int]] = {}
+    tables = (
+        ("gesture", GestureRecord, GestureRecord.uid),
+        ("image", ImageRecord, ImageRecord.uid),
+        ("chat", ChatRecord, ChatRecord.uid),
+    )
+    for key, model, uid_col in tables:
+        rows = db.execute(
+            select(uid_col, func.count()).where(uid_col.is_not(None)).group_by(uid_col)
+        ).all()
+        for uid, count in rows:
+            slot = result.setdefault(int(uid), {"gesture": 0, "image": 0, "chat": 0})
+            slot[key] = int(count)
+    return result
+
+
+def set_user_role(db: Session, user: User, role: str) -> User:
+    user.role = role
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def delete_user(db: Session, user: User) -> None:
+    """删除用户；SQLite 已开 PRAGMA foreign_keys=ON，记录随 CASCADE 一起删。"""
+    db.delete(user)
+    db.commit()
+
+
+def count_admins(db: Session) -> int:
+    return int(db.scalar(select(func.count()).select_from(User).where(User.role == "admin")) or 0)
 
 
 # --------------------------------------------------------------------------- 手势记录
@@ -201,6 +254,13 @@ def list_image_records(
     return list(db.scalars(stmt))
 
 
+def count_image_records(db: Session, *, uid: int | None = None) -> int:
+    stmt = select(func.count()).select_from(ImageRecord)
+    if uid is not None:
+        stmt = stmt.where(ImageRecord.uid == uid)
+    return int(db.scalar(stmt) or 0)
+
+
 # --------------------------------------------------------------------------- 问答记录
 
 
@@ -219,6 +279,13 @@ def list_chat_records(
     if uid is not None:
         stmt = stmt.where(ChatRecord.uid == uid)
     return list(db.scalars(stmt))
+
+
+def count_chat_records(db: Session, *, uid: int | None = None) -> int:
+    stmt = select(func.count()).select_from(ChatRecord)
+    if uid is not None:
+        stmt = stmt.where(ChatRecord.uid == uid)
+    return int(db.scalar(stmt) or 0)
 
 
 def overview_stats(db: Session) -> dict[str, int]:

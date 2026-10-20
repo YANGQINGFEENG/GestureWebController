@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GestureWebController · 后台管理</title>
+    <style>
+      :root {
+        --bg: #0b1020;
+        --panel: #131a2e;
+        --panel-2: #1a2340;
+        --line: #26304d;
+        --text: #e6e9f2;
+        --muted: #93a0bd;
+        --accent: #4f8cff;
+        --ok: #22c55e;
+        --warn: #f59e0b;
+        --err: #ef4444;
+        --radius: 12px;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(1200px 600px at 20% -10%, #16203c 0%, var(--bg) 60%);
+        color: var(--text);
+        font: 14px/1.6 system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+        min-height: 100vh;
+      }
+      header {
+        display: flex; align-items: center; gap: 12px;
+        padding: 18px 24px; border-bottom: 1px solid var(--line);
+        position: sticky; top: 0; z-index: 10;
+        background: rgba(11, 16, 32, 0.86); backdrop-filter: blur(8px);
+      }
+      header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+      header .spacer { flex: 1; }
+      a { color: var(--accent); text-decoration: none; }
+      .pill {
+        font-size: 12px; padding: 2px 10px; border-radius: 999px;
+        border: 1px solid var(--line); color: var(--muted); white-space: nowrap;
+      }
+      .pill.ok { color: #b7f7c9; border-color: #1f5f36; background: #0f2a1c; }
+      .pill.warn { color: #ffe0a3; border-color: #5c4415; background: #2a2110; }
+      main { padding: 20px 24px 60px; display: grid; gap: 20px; max-width: 1280px; margin: 0 auto; }
+      .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+      .card > h2 {
+        font-size: 13px; margin: 0; padding: 12px 16px; color: var(--muted);
+        border-bottom: 1px solid var(--line); font-weight: 600; letter-spacing: 0.4px;
+        display: flex; align-items: center; justify-content: space-between; gap: 10px;
+        flex-wrap: wrap;
+      }
+      .card .body { padding: 16px; }
+      label.field { display: block; margin-bottom: 12px; font-size: 12px; color: var(--muted); }
+      label.field span { display: block; margin-bottom: 5px; }
+      input[type="text"], input[type="password"], select {
+        font: inherit; width: 100%; color: var(--text); background: #0d1425;
+        border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px;
+      }
+      input:focus, select:focus { outline: none; border-color: var(--accent); }
+      button {
+        font: inherit; color: var(--text); background: var(--panel-2);
+        border: 1px solid var(--line); border-radius: 8px; padding: 8px 16px; cursor: pointer;
+        transition: 0.15s;
+      }
+      button:hover:not(:disabled) { border-color: #3d4a72; background: #202b4d; }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #06122b; font-weight: 600; }
+      button.danger { border-color: #5b2222; color: #ffb4b4; }
+      button.tiny { padding: 3px 9px; font-size: 12px; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .msg { font-size: 12px; min-height: 18px; margin-top: 10px; }
+      .msg.err { color: #ffb4b4; }
+      .msg.ok { color: #b7f7c9; }
+      .stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1px; background: var(--line); }
+      .stats div { background: var(--panel); padding: 12px 14px; }
+      .stats b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+      .stats span { font-size: 11px; color: var(--muted); }
+      @media (max-width: 900px) { .stats { grid-template-columns: repeat(3, 1fr); } }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: middle; }
+      th { color: var(--muted); font-weight: 500; font-size: 12px; white-space: nowrap; }
+      tbody tr:hover { background: #17203a; }
+      .muted { color: var(--muted); }
+      .num { font-variant-numeric: tabular-nums; }
+      .empty { padding: 28px 12px; text-align: center; color: var(--muted); }
+      .tabs { display: flex; gap: 6px; padding: 12px 16px 0; flex-wrap: wrap; }
+      .tabs button { border-radius: 8px 8px 0 0; }
+      .tabs button.active { background: var(--panel-2); border-color: var(--line); border-bottom-color: var(--panel-2); color: #fff; }
+      .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+      @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+      .bars { display: grid; gap: 8px; }
+      .bar { display: grid; grid-template-columns: 110px 1fr 40px; gap: 10px; align-items: center; font-size: 12px; }
+      /* span 默认是 inline，不写 display:block 的话 height 不生效，条会塌成一条线 */
+      .bar .track { display: block; height: 8px; border-radius: 999px; background: #0d1425; overflow: hidden; }
+      .bar .fill { display: block; height: 100%; background: linear-gradient(90deg, #4f8cff, #7aa7ff); }
+      .spark { display: flex; align-items: flex-end; gap: 6px; height: 96px; padding-top: 8px; }
+      .spark .col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; height: 100%; }
+      .spark .bar-v { width: 100%; border-radius: 4px 4px 0 0; background: linear-gradient(180deg, #7aa7ff, #3f6fd8); min-height: 2px; }
+      .spark .col span { font-size: 10px; color: var(--muted); white-space: nowrap; }
+      .thumb { width: 54px; height: 40px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); background: #0a0f1e; }
+      .clip { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 420px; }
+      .hidden { display: none !important; }
+      .scroll { overflow: auto; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>后台管理</h1>
+      <span class="pill" id="who">未登录</span>
+      <span class="pill hidden" id="rolePill">—</span>
+      <div class="spacer"></div>
+      <a class="pill" href="index.html">← 演示页</a>
+      <a class="pill" href="profile.html">个人中心</a>
+      <button class="tiny hidden" id="btnLogout">退出</button>
+    </header>
+
+    <main>
+      <!-- 登录 / 无权限 -->
+      <section class="card" id="authCard">
+        <h2>需要管理员身份</h2>
+        <div class="body" style="max-width: 420px">
+          <div id="authHint" class="muted" style="font-size: 12px; margin-bottom: 14px">
+            用管理员账号登录后即可查看全站数据。
+          </div>
+          <label class="field"><span>账号</span><input type="text" id="authUser" autocomplete="username" /></label>
+          <label class="field"><span>密码</span><input type="password" id="authPass" autocomplete="current-password" /></label>
+          <div class="row">
+            <button class="primary" id="btnLogin">登录</button>
+            <span class="muted" style="font-size: 12px">演示管理员 admin / admin123456</span>
+          </div>
+          <div class="msg" id="authMsg"></div>
+        </div>
+      </section>
+
+      <!-- 管理员视图 -->
+      <section class="hidden" id="panel" style="display: grid; gap: 20px">
+        <div class="card">
+          <h2>
+            <span>总览</span>
+            <span class="row">
+              <span class="muted" id="updatedAt" style="font-size: 12px"></span>
+              <button class="tiny" id="btnReload">刷新</button>
+            </span>
+          </h2>
+          <div class="stats">
+            <div><b id="cUsers">0</b><span>注册用户</span></div>
+            <div><b id="cGesture">0</b><span>手势记录</span></div>
+            <div><b id="cImage">0</b><span>图片识别</span></div>
+            <div><b id="cChat">0</b><span>问答记录</span></div>
+            <div><b id="cKinds">0</b><span>覆盖手势</span></div>
+            <div><b id="cConf">0%</b><span>平均置信度</span></div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <section class="card">
+            <h2>手势分布（全站）</h2>
+            <div class="body bars" id="bars"><div class="muted">暂无数据</div></div>
+          </section>
+          <section class="card">
+            <h2>近 7 天触发趋势</h2>
+            <div class="body"><div class="spark" id="spark"></div></div>
+          </section>
+        </div>
+
+        <section class="card">
+          <h2>
+            <span>用户管理</span>
+            <span class="row">
+              <input type="text" id="userQuery" placeholder="搜索账号或昵称" style="width: 180px" />
+              <button class="tiny" id="btnSearchUser">搜索</button>
+              <button class="tiny" id="btnPrevUser">上一页</button>
+              <span class="muted" id="userPage" style="font-size: 12px">—</span>
+              <button class="tiny" id="btnNextUser">下一页</button>
+            </span>
+          </h2>
+          <div class="scroll" id="userWrap"><div class="empty">加载中…</div></div>
+        </section>
+
+        <section class="card">
+          <h2>记录明细</h2>
+          <div class="tabs">
+            <button class="active" data-tab="gesture">手势记录</button>
+            <button data-tab="image">图片识别</button>
+            <button data-tab="chat">问答记录</button>
+            <span class="spacer" style="flex: 1"></span>
+            <span class="row" style="padding-bottom: 8px">
+              <button class="tiny" id="btnPrevRec">上一页</button>
+              <span class="muted" id="recPage" style="font-size: 12px">—</span>
+              <button class="tiny" id="btnNextRec">下一页</button>
+            </span>
+          </div>
+          <div class="scroll" id="recWrap"><div class="empty">加载中…</div></div>
+        </section>
+      </section>
+    </main>
+
+    <script type="module">
+      import { api, clearSession, getEndpoint, getToken, getUser, saveSession } from '../assets/auth.js';
+
+      const $ = (id) => document.getElementById(id);
+      const esc = (s) =>
+        String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+      const time = (iso) => {
+        if (!iso) return '—';
+        const d = new Date(iso);
+        return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('zh-CN', { hour12: false });
+      };
+      const pct = (v) => `${Math.round((Number(v) || 0) * 100)}%`;
+
+      const ACTION_LABEL = {
+        scroll_down: '下翻页',
+        scroll_up: '上翻页',
+        screenshot: '截屏',
+        confirm: '确定',
+        image_recognition: '图片识别',
+        screenshot_ai_search: '截屏 + AI 搜索',
+      };
+      const SOURCE_LABEL = { camera: '摄像头', video: '视频', images: '图片序列', upload: '上传', gesture: '手势', screenshot: '截屏' };
+
+      const PAGE = 20;
+      const state = {
+        overview: null,
+        users: { offset: 0, total: 0, keyword: '' },
+        records: { tab: 'gesture', offset: 0, total: 0 },
+      };
+
+      // ---------- 登录 ----------
+      function showAuth(hint, isError) {
+        $('authCard').classList.remove('hidden');
+        $('panel').classList.add('hidden');
+        $('btnLogout').classList.add('hidden');
+        $('rolePill').classList.add('hidden');
+        if (hint) {
+          $('authHint').textContent = hint;
+          $('authMsg').textContent = isError ? hint : '';
+          $('authMsg').className = isError ? 'msg err' : 'msg';
+        }
+      }
+
+      async function login() {
+        const username = $('authUser').value.trim();
+        const password = $('authPass').value;
+        if (!username || !password) {
+          $('authMsg').textContent = '请填账号和密码';
+          $('authMsg').className = 'msg err';
+          return;
+        }
+        $('btnLogin').disabled = true;
+        try {
+          const data = await api('/api/auth/login', { method: 'POST', body: { username, password }, auth: false });
+          saveSession(data);
+          $('authMsg').textContent = '';
+          await boot();
+        } catch (err) {
+          $('authMsg').textContent = err.message;
+          $('authMsg').className = 'msg err';
+        } finally {
+          $('btnLogin').disabled = false;
+        }
+      }
+
+      function logout() {
+        clearSession();
+        location.reload();
+      }
+
+      // ---------- 总览 ----------
+      function renderOverview(data) {
+        state.overview = data;
+        const c = data.counts || {};
+        $('cUsers').textContent = c.users ?? 0;
+        $('cGesture').textContent = c.gesture_records ?? 0;
+        $('cImage').textContent = c.image_records ?? 0;
+        $('cChat').textContent = c.chat_records ?? 0;
+        $('cKinds').textContent = data.summary?.gesture_kinds ?? 0;
+        $('cConf').textContent = pct(data.summary?.avg_confidence);
+        $('updatedAt').textContent = `更新于 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`;
+
+        // 手势分布：按次数降序，条宽相对最大值
+        const byType = data.gesture_stats?.by_type || {};
+        const entries = Object.entries(byType);
+        if (!entries.length) {
+          $('bars').innerHTML = '<div class="muted">暂无数据</div>';
+        } else {
+          const max = Math.max(...entries.map(([, n]) => n), 1);
+          $('bars').innerHTML = entries
+            .map(([type, n]) => {
+              const width = Math.max(4, (n / max) * 100);
+              return `<div class="bar"><span title="${esc(type)}">${esc(type)}</span>
+                <span class="track"><span class="fill" style="width:${width}%"></span></span>
+                <span class="num">${n}</span></div>`;
+            })
+            .join('');
+        }
+
+        // 近 7 天：补齐没有数据的日期，否则柱子会缺格
+        const daily = data.summary?.daily || {};
+        const days = [];
+        for (let i = 6; i >= 0; i -= 1) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          days.push({ key, label: `${d.getMonth() + 1}/${d.getDate()}`, n: daily[key] || 0 });
+        }
+        const maxDay = Math.max(...days.map((d) => d.n), 1);
+        $('spark').innerHTML = days
+          .map(
+            (d) =>
+              `<div class="col" title="${d.key}：${d.n} 次">
+                 <div class="bar-v" style="height:${Math.max(3, (d.n / maxDay) * 100)}%"></div>
+                 <span>${d.label}</span>
+                 <span class="num">${d.n}</span>
+               </div>`,
+          )
+          .join('');
+      }
+
+      async function loadOverview() {
+        const data = await api('/api/admin/overview');
+        renderOverview(data);
+      }
+
+      // ---------- 用户 ----------
+      function renderUsers(data) {
+        state.users.total = data.total ?? 0;
+        const items = data.items || [];
+        if (!items.length) {
+          $('userWrap').innerHTML = '<div class="empty">没有匹配的用户</div>';
+        } else {
+          const me = getUser();
+          const rows = items
+            .map(
+              (u) => `<tr>
+                <td class="num">${u.uid}</td>
+                <td>${esc(u.username)}${me?.uid === u.uid ? ' <span class="pill">我</span>' : ''}</td>
+                <td>${esc(u.nickname)}</td>
+                <td>
+                  <select data-uid="${u.uid}" data-role="${esc(u.role)}" style="width:96px" ${me?.uid === u.uid ? 'disabled' : ''}>
+                    <option value="user" ${u.role === 'user' ? 'selected' : ''}>普通用户</option>
+                    <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>管理员</option>
+                  </select>
+                </td>
+                <td class="num">${u.counts?.gesture ?? 0}</td>
+                <td class="num">${u.counts?.image ?? 0}</td>
+                <td class="num">${u.counts?.chat ?? 0}</td>
+                <td class="muted">${time(u.create_time)}</td>
+                <td>
+                  <button class="tiny danger" data-del="${u.uid}" data-name="${esc(u.username)}" ${me?.uid === u.uid ? 'disabled' : ''}>删除</button>
+                </td>
+              </tr>`,
+            )
+            .join('');
+          $('userWrap').innerHTML = `<table>
+            <thead><tr><th>UID</th><th>账号</th><th>昵称</th><th>角色</th><th>手势</th><th>图片</th><th>问答</th><th>注册时间</th><th></th></tr></thead>
+            <tbody>${rows}</tbody></table>`;
+        }
+        const from = state.users.total ? state.users.offset + 1 : 0;
+        const to = Math.min(state.users.offset + PAGE, state.users.total);
+        $('userPage').textContent = `${from}~${to} / ${state.users.total}`;
+      }
+
+      async function loadUsers(offset = state.users.offset) {
+        state.users.offset = Math.max(0, offset);
+        const q = encodeURIComponent(state.users.keyword);
+        const data = await api(`/api/admin/users?limit=${PAGE}&offset=${state.users.offset}&q=${q}`);
+        renderUsers(data);
+      }
+
+      // ---------- 记录 ----------
+      function renderRecords(data) {
+        state.records.total = data.total ?? 0;
+        const items = data.items || [];
+        const tab = state.records.tab;
+        if (!items.length) {
+          $('recWrap').innerHTML = '<div class="empty">暂无记录</div>';
+          $('recPage').textContent = '0 / 0';
+          return;
+        }
+
+        let head = '';
+        let rows = '';
+        if (tab === 'gesture') {
+          head = '<tr><th>ID</th><th>UID</th><th>手势</th><th>动作</th><th>置信度</th><th>耗时</th><th>来源</th><th>时间</th></tr>';
+          rows = items
+            .map(
+              (r) => `<tr>
+                <td class="num">${r.record_id}</td>
+                <td class="num">${r.uid ?? '<span class="muted">游客</span>'}</td>
+                <td>${esc(r.gesture_label || r.gesture_type)}</td>
+                <td>${esc(ACTION_LABEL[r.action] || r.action || '—')}</td>
+                <td class="num">${pct(r.confidence)}</td>
+                <td class="num">${r.infer_ms} ms</td>
+                <td>${esc(SOURCE_LABEL[r.source] || r.source)}</td>
+                <td class="muted">${time(r.create_time)}</td>
+              </tr>`,
+            )
+            .join('');
+        } else if (tab === 'image') {
+          head = '<tr><th>ID</th><th>UID</th><th>缩略图</th><th>标签</th><th>来源</th><th>置信度</th><th>结果</th><th>时间</th></tr>';
+          const base = getEndpoint();
+          rows = items
+            .map(
+              (r) => `<tr>
+                <td class="num">${r.record_id}</td>
+                <td class="num">${r.uid ?? '<span class="muted">游客</span>'}</td>
+                <td>${
+                  r.img_url
+                    ? `<a href="${esc(base + r.img_url)}" target="_blank" rel="noopener"><img class="thumb" src="${esc(base + r.img_url)}" alt="识别图片" loading="lazy" /></a>`
+                    : '<span class="muted">未保存</span>'
+                }</td>
+                <td>${esc(r.label || '—')}</td>
+                <td>${esc(SOURCE_LABEL[r.source] || r.source)}</td>
+                <td class="num">${pct(r.confidence)}</td>
+                <td><div class="clip" title="${esc(r.result)}">${esc(r.result || '—')}</div></td>
+                <td class="muted">${time(r.create_time)}</td>
+              </tr>`,
+            )
+            .join('');
+        } else {
+          head = '<tr><th>ID</th><th>UID</th><th>问题</th><th>回答</th><th>时间</th></tr>';
+          rows = items
+            .map(
+              (r) => `<tr>
+                <td class="num">${r.chat_id}</td>
+                <td class="num">${r.uid ?? '<span class="muted">游客</span>'}</td>
+                <td><div class="clip" title="${esc(r.question)}">${esc(r.question)}</div></td>
+                <td><div class="clip" title="${esc(r.answer)}">${esc(r.answer)}</div></td>
+                <td class="muted">${time(r.create_time)}</td>
+              </tr>`,
+            )
+            .join('');
+        }
+        $('recWrap').innerHTML = `<table><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+        const total = state.records.total;
+        $('recPage').textContent = total ? `${state.records.offset + 1}~${Math.min(state.records.offset + PAGE, total)} / ${total}` : '—';
+      }
+
+      async function loadRecords(offset = state.records.offset) {
+        state.records.offset = Math.max(0, offset);
+        const tab = state.records.tab;
+        const path = tab === 'gesture' ? '/api/admin/records' : `/api/admin/${tab === 'image' ? 'images' : 'chats'}`;
+        const data = await api(`${path}?limit=${PAGE}&offset=${state.records.offset}`);
+        renderRecords(data);
+      }
+
+      // ---------- 权限入口 ----------
+      async function boot() {
+        const token = getToken();
+        if (!token) {
+          showAuth('用管理员账号登录后即可查看全站数据。');
+          return;
+        }
+        try {
+          // 先确认自己的身份，避免非管理员进去看一堆 403
+          const me = await api('/api/auth/me');
+          const user = me.user || me;
+          if (user.role !== 'admin') {
+            showAuth(`当前账号 ${user.username} 是普通用户，没有后台权限。`, true);
+            return;
+          }
+          $('who').textContent = `${user.nickname || user.username}（${user.username}）`;
+          $('rolePill').textContent = '管理员';
+          $('rolePill').className = 'pill ok';
+          $('rolePill').classList.remove('hidden');
+          $('btnLogout').classList.remove('hidden');
+          $('authCard').classList.add('hidden');
+          $('panel').classList.remove('hidden');
+
+          await loadOverview();
+          await loadUsers(0);
+          await loadRecords(0);
+        } catch (err) {
+          if (err.status === 401) {
+            clearSession();
+            showAuth('登录已失效，请重新登录。');
+          } else if (err.status === 403) {
+            showAuth('这个账号没有管理员权限。', true);
+          } else {
+            showAuth(`无法连接后台：${err.message}`, true);
+          }
+        }
+      }
+
+      // ---------- 事件 ----------
+      $('btnLogin').addEventListener('click', login);
+      $('authPass').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') login();
+      });
+      $('btnLogout').addEventListener('click', logout);
+      $('btnReload').addEventListener('click', () => {
+        loadOverview().catch((e) => ($('updatedAt').textContent = `刷新失败：${e.message}`));
+      });
+
+      $('btnSearchUser').addEventListener('click', () => {
+        state.users.keyword = $('userQuery').value.trim();
+        loadUsers(0).catch((e) => ($('userPage').textContent = e.message));
+      });
+      $('userQuery').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') $('btnSearchUser').click();
+      });
+      $('btnPrevUser').addEventListener('click', () => loadUsers(Math.max(0, state.users.offset - PAGE)));
+      $('btnNextUser').addEventListener('click', () => {
+        if (state.users.offset + PAGE < state.users.total) loadUsers(state.users.offset + PAGE);
+      });
+
+      $('userWrap').addEventListener('change', async (e) => {
+        const sel = e.target.closest('select[data-uid]');
+        if (!sel) return;
+        const uid = Number(sel.dataset.uid);
+        const role = sel.value;
+        try {
+          await api(`/api/admin/users/${uid}`, { method: 'PATCH', body: { role } });
+          sel.dataset.role = role;
+          await loadUsers();
+          await loadOverview();
+        } catch (err) {
+          sel.value = sel.dataset.role;
+          alert(`改角色失败：${err.message}`);
+        }
+      });
+
+      $('userWrap').addEventListener('click', async (e) => {
+        const btn = e.target.closest('button[data-del]');
+        if (!btn) return;
+        const uid = Number(btn.dataset.del);
+        const name = btn.dataset.name;
+        // 删用户会连带删掉他的全部记录，必须二次确认
+        if (!confirm(`确定删除用户「${name}」（UID ${uid}）？\n他的手势 / 图片 / 问答记录会一并删除，且不可恢复。`)) return;
+        try {
+          await api(`/api/admin/users/${uid}`, { method: 'DELETE' });
+          await loadUsers();
+          await loadOverview();
+          await loadRecords(0);
+        } catch (err) {
+          alert(`删除失败：${err.message}`);
+        }
+      });
+
+      document.querySelectorAll('.tabs button[data-tab]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.tabs button[data-tab]').forEach((b) => b.classList.toggle('active', b === btn));
+          state.records.tab = btn.dataset.tab;
+          loadRecords(0).catch((e) => ($('recWrap').innerHTML = `<div class="empty">${esc(e.message)}</div>`));
+        });
+      });
+      $('btnPrevRec').addEventListener('click', () => loadRecords(Math.max(0, state.records.offset - PAGE)));
+      $('btnNextRec').addEventListener('click', () => {
+        if (state.records.offset + PAGE < state.records.total) loadRecords(state.records.offset + PAGE);
+      });
+
+      // 供自动化自检用：无头浏览器里不方便点 DOM，直接读这个
+      window.__gwcAdmin = { state, boot, loadOverview, loadUsers, loadRecords };
+
+      boot();
+    </script>
+  </body>
+</html>

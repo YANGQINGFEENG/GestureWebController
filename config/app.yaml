@@ -1,0 +1,31 @@
+# 应用运行配置（数据库 / 鉴权 / 记录策略）
+#
+# 环境变量可覆盖同名配置，优先级：环境变量 > 本文件 > 代码默认值
+#   GWC_DB_URL        数据库地址
+#   GWC_DB_ENABLED    1/0，是否启用数据库（关闭后手势操控照常，只是不记日志）
+#   GWC_JWT_SECRET    JWT 签名密钥
+#   GWC_ADMIN_USER    启动时自动创建的管理员账号（同名已存在则跳过）
+#   GWC_ADMIN_PASSWORD
+
+database:
+  # 相对仓库根目录；SQLite 单文件，零安装，符合"可插拔日志层"定位（ADR-006）
+  url: sqlite:///data/app.db
+  echo: false
+  enabled: true
+  # 启动时自动建表；生产环境应改为迁移脚本
+  create_tables: true
+
+auth:
+  # 留空则首次启动自动生成随机密钥并写入 data/.jwt_secret（该文件不入库）
+  # 多机部署必须显式设置 GWC_JWT_SECRET，否则各机签发的 token 互不认
+  secret: ""
+  algorithm: HS256
+  expire_hours: 168          # 7 天，演示期足够；生产应更短并配刷新令牌
+  min_password_length: 6
+  allow_register: true
+
+records:
+  # 手势记录里的图片一律不入库（只有类型、置信度、耗时），节省体积
+  enabled: true
+  # 单用户保留条数上限，超过后最早记录在写入时被清理（0 = 不限制）
+  max_per_user: 0

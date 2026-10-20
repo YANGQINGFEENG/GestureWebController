@@ -26,17 +26,19 @@
 
 ```
 backend/app/
-  api/          路由层：predict / image / chat / auth / record / admin
-  services/     业务层：detector(YOLO推理) / image_rec / ai_chat / recorder
-  db/           数据层：ORM 模型、会话、建表脚本
-  core/         配置、鉴权、依赖注入
-frontend/pages/ 页面：index(演示主页) / profile / admin / embed-demo ...
+  api/          路由层：predict / auth / records / admin / system / deps(依赖注入)
+  services/    业务层：detector(YOLO推理)（M3 加 image_rec / ai_chat）
+  db/           数据层：models(四张表) / session / repository(全部查询) / seed
+  core/         配置加载、密码哈希与 JWT
+frontend/pages/ 页面：index(演示主页) / profile(个人中心)（M3/M4 加 chat / admin / embed-demo）
+frontend/assets/ auth.js（登录态与 api 封装）
 sdk/src/        可复用 SDK（capture / overlay / debounce / actions / index）
 sdk/dist/       构建产物
-config/         gesture_map.json（手势映射）、model.yaml（模型参数）
+config/         gesture_map.json（手势映射）、model.yaml（模型参数）、app.yaml（数据库/鉴权/记录）
 models/         权重目录（*.pt 不入库）
-scripts/        download_model / check_gesture_map / log_progress / hooks
-data/           uploads、screenshots、db（均不入库）
+scripts/        download_model / check_gesture_map / predict_image / stress_test / start_dev /
+                log_progress / test_sdk / test_controller / test_api_m2 / hooks
+data/           uploads、screenshots、app.db、.jwt_secret（均不入库）
 docs/           需求、计划、进度、决策、日志、交接
 ```
 
@@ -50,7 +52,9 @@ docs/           需求、计划、进度、决策、日志、交接
 4. **数据库是可插拔日志层**。落库失败只记日志，绝不阻断手势主链路。
 5. **YOLO 只出现在 `backend/app/services/detector.py`**。其他层不 import torch / ultralytics，方便替换模型与单测。
 6. **密码必须哈希**（bcrypt），任何地方不得明文。
-7. **权重、数据库、上传文件、密钥一律不入库**。`.pt` / `*.db` / `.env` / `data/uploads/*` 已在 `.gitignore`，不要 `git add -f`。
+7. **权重、数据库、上传文件、密钥一律不入库**。`.pt` / `*.db` / `.env` / `data/uploads/*` / `data/.jwt_secret` 已在 `.gitignore`，不要 `git add -f`。
+8. **依赖注入只传 `AuthUser` 快照，不传 ORM 对象**（ADR-013）。需要完整用户信息时用接口自己的 Session 重新查，否则会出现 `Object is already attached to session`。
+9. **所有 SQL 集中在 `db/repository.py`**，API 层不写查询语句。
 
 ---
 
@@ -81,11 +85,12 @@ git add -A && git commit -m "feat: xxx"
 
 仓库已装提交前钩子：**改了 `backend/ frontend/ sdk/ scripts/ config/` 却没更新 `docs/开发进度.md`，提交会被拒绝**。安装钩子见 `scripts/install_hooks.sh`。
 
-### 改完代码请跑这三条（都不需要摄像头 / 浏览器）
+### 改完代码请跑这四条（都不需要摄像头 / 浏览器）
 
 ```bash
 node scripts/test_sdk.mjs           # 防抖纯逻辑（9 用例）
-node scripts/test_controller.mjs    # SDK 主循环集成（8 用例，DOM 桩）
+node scripts/test_controller.mjs    # SDK 主循环集成 + 上报（12 用例，DOM 桩）
+python scripts/test_api_m2.py       # 接口端到端（34 用例，需后端已启动）
 python scripts/check_gesture_map.py # 配置里的类别名与权重是否匹配
 ```
 

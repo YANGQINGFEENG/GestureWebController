@@ -40,7 +40,7 @@ python scripts/check_gesture_map.py
 ```
 
 
-**防抖机制**：连续 3 帧识别到同一手势且置信度 ≥ 0.7 才触发动作，避免抖动误触发。
+**防抖机制**：连续 3 帧识别到同一手势、且置信度达到**该手势自己的门槛**才触发动作（默认 0.7，🤟 因借类映射放宽到 0.45），并带按手势计算的冷却时间，避免抖动误触发。
 手势与动作的映射写在 `config/gesture_map.json`，改配置即可，无需改动推理核心代码。
 
 ---
@@ -52,7 +52,8 @@ python scripts/check_gesture_map.py
 | 手势检测 | Ultralytics YOLO + HaGRIDv2 预训练权重（34 类，默认 YOLOv10n，可换 YOLOv8n 自定义权重） |
 | 后端服务 | Python / FastAPI，独立 API 服务，可单独启动 |
 | 前端 SDK | 原生 JS，摄像头采集 + Canvas 绘制 + html2canvas 截屏 |
-| 数据库 | 关系型数据库，4 张表（user / gesture_record / image_record / chat_record） |
+| 数据库 | SQLite + SQLAlchemy 2.0，4 张表（user / gesture_record / image_record / chat_record），外键关联 |
+| 账号鉴权 | bcrypt 密码哈希 + JWT，普通用户 / 管理员两种角色 |
 | AI 问答 | 大语言模型 API，支持图文联动提问 |
 
 ---
@@ -63,19 +64,19 @@ python scripts/check_gesture_map.py
 GestureWebController/
 ├── backend/                 # 后端推理服务（FastAPI）
 │   └── app/
-│       ├── api/             # 路由：predict / image / chat / record / admin
-│       ├── services/        # YOLO 推理、图像识别、AI 问答、日志上报
-│       ├── db/              # ORM 模型、会话、初始化脚本
-│       └── core/            # 配置、鉴权、依赖注入
+│       ├── api/             # 路由：predict / auth / records / admin / system
+│       ├── services/        # YOLO 推理（唯一 import ultralytics 的地方）
+│       ├── db/              # 四张表的 ORM 模型、会话、数据访问、种子数据
+│       └── core/            # 配置加载、密码哈希与 JWT
 ├── frontend/                # 业务站点页面
-│   ├── pages/               # 首页 / 登录 / 演示主页 / AI 问答 / 个人中心 / 后台
-│   └── assets/              # 样式、图标、静态资源
+│   ├── pages/               # 演示主页 / 个人中心（后续：AI 问答 / 后台）
+│   └── assets/              # 样式、登录态与接口封装
 ├── sdk/                     # 可复用前端 SDK（构建产物放 dist/）
 ├── models/                  # 模型权重存放目录（权重不入库）
-├── config/                  # 手势映射等配置文件
-├── scripts/                 # 一键启动、数据初始化等脚本
-├── data/                    # 运行期数据：数据库、上传图片、截图
-└── docs/                    # 需求文档与设计文档
+├── config/                  # 手势映射（gesture_map.json）、模型参数、应用配置（app.yaml）
+├── scripts/                 # 一键启动、下载权重、批量测试、接口测试
+├── data/                    # 运行期数据：数据库、上传图片、截图（全部不入库）
+└── docs/                    # 需求文档、决策记录、进度看板、交接说明
 ```
 
 详细需求见 [docs/GestureWebController需求文档.md](docs/GestureWebController需求文档.md)。
@@ -120,13 +121,34 @@ python scripts/check_gesture_map.py     # 应输出 6/6 匹配
 
 打开 http://127.0.0.1:8000/docs 可直接试接口；`GWC_PRELOAD=1` 可让服务启动即加载模型（首次推理不用等）。
 
+**数据库不需要额外安装**：首次启动自动建 `data/app.db`（SQLite 单文件），并在库为空时创建一个管理员账号 **`admin / admin123456`**（可用 `GWC_ADMIN_USER` / `GWC_ADMIN_PASSWORD` 覆盖，演示前建议改掉）。删掉 `data/app.db` 即可回到全新状态。
+
 ### 接口自测
 
 ```bash
-curl http://127.0.0.1:8000/api/health
+curl http://127.0.0.1:8000/api/system/status      # 数据库、四表条数、密钥来源
+curl http://127.0.0.1:8000/api/health             # 模型状态与六手势映射
 
 curl -X POST http://127.0.0.1:8000/api/predict \
   -F "frame=@data/testshots/single/r4c6.jpg;type=image/jpeg"
+```
+
+账号与记录（M2）：
+
+```bash
+# 登录拿 token（默认管理员）
+TOKEN=$(curl -s -X POST http://127.0.0.1:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123456"}' | python -c "import json,sys;print(json.load(sys.stdin)['access_token'])")
+
+# 上报一次手势（也可以不带 token，uid 记 null）
+curl -X POST http://127.0.0.1:8000/api/records/gesture \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"gesture_type":"victory","confidence":0.88,"source":"camera"}'
+
+# 查列表与统计
+curl -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:8000/api/records/gesture?limit=10"
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/api/records/gesture/stats
 ```
 
 返回示例：
@@ -185,11 +207,28 @@ CPU 实测单帧 28~58ms（YOLOv10n / imgsz 640），模型首次加载约 3s。
 
 业务方不想用默认动作实现时，传 `actions: { scroll_down: fn, screenshot: fn }` 整条接管，或用 `ctrl.actions.register(action, fn)` 单独替换。
 
+每次触发默认会向后端上报一条记录。要带登录身份，传 `token`；嵌入第三方页面不想落库，传 `report: false`：
+
+```js
+const ctrl = new GestureWebController({
+  canvas,
+  token: () => localStorage.getItem('gwc_token'),  // 也支持直接传字符串
+  report: true,                                     // 默认 true
+});
+```
+
+上报是 fire-and-forget：数据库挂了只会让 `stats.reportErrors` 增加，**不会影响翻页，也不会弹错**。
+
+### 个人中心
+
+演示页右上角可进入 `frontend/pages/profile.html`：注册 / 登录、改昵称改密码、手势统计（总数 / 覆盖手势 / 平均置信度 / 近 7 天）、手势分布条、记录列表分页与删除。
+
 ### 测试
 
 ```bash
 node scripts/test_sdk.mjs           # 防抖纯逻辑：9 个用例（无需浏览器）
-node scripts/test_controller.mjs    # 主循环集成测试：8 个用例（DOM 桩，无需摄像头）
+node scripts/test_controller.mjs    # 主循环集成：12 个用例（DOM 桩 + 上报，无需摄像头）
+python scripts/test_api_m2.py       # 接口端到端：34 个用例（需后端已启动）
 ```
 
 ---

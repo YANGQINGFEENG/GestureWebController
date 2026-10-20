@@ -103,6 +103,8 @@
       <span class="pill" id="serverState">检测后端…</span>
       <span class="pill" id="sourceState">未启动</span>
       <span class="pill" id="modeState">—</span>
+      <span class="pill" id="acctState">未登录</span>
+      <a class="pill" id="acctLink" href="profile.html" style="text-decoration: none">个人中心 →</a>
     </header>
 
     <main>
@@ -154,6 +156,7 @@
 
     <script type="module">
       import { GestureWebController, FrameSource } from '../../sdk/src/index.js';
+      import { getEndpoint, getUser, getToken, setEndpoint } from '../assets/auth.js';
 
       const $ = (id) => document.getElementById(id);
       const canvas = $('preview');
@@ -215,6 +218,22 @@
       }
       probeServer();
 
+      // ---------- 账号状态 ----------
+      function refreshAccount() {
+        const user = getUser();
+        const pill = $('acctState');
+        if (user && getToken()) {
+          pill.textContent = `${user.nickname || user.username}${user.role === 'admin' ? '（管理员）' : ''}`;
+          pill.className = 'pill ok';
+          $('acctLink').textContent = '个人中心 →';
+        } else {
+          pill.textContent = '未登录（记录以游客身份入库）';
+          pill.className = 'pill';
+          $('acctLink').textContent = '登录 / 注册 →';
+        }
+      }
+      refreshAccount();
+
       // ---------- 控制器 ----------
       function buildController() {
         if (ctrl) ctrl.stop();
@@ -223,6 +242,7 @@
           endpoint: $('endpoint').value,
           fps: 8,
           mirror: currentKind === 'camera',
+          token: () => getToken(),
         });
 
         ctrl.on('frame', ({ gestures, inferMs, streak, triggered }) => {
@@ -246,6 +266,15 @@
         });
 
         ctrl.on('error', ({ message }) => log(`错误：${message}`, 'err'));
+
+        ctrl.on('report', ({ ok, gesture, data, error }) => {
+          if (ok) {
+            log(`已入库：${gesture} #${data?.record?.record_id ?? '?'}`, 'hit');
+          } else {
+            // 上报失败不是致命问题：手势动作照常执行，只是这条没进数据库
+            log(`记录未入库（不影响操控）：${error || data?.reason || '未知原因'}`, 'err');
+          }
+        });
 
         ctrl.on('config', ({ debounce }) => {
           log(`防抖参数已同步：${debounce.frame} 帧 / 阈值 ${debounce.confThreshold} / 冷却 ${debounce.cooldownMs}ms`);
@@ -326,11 +355,16 @@
         log('已停止');
       });
 
-      $('endpoint').addEventListener('change', probeServer);
+      $('endpoint').addEventListener('change', () => {
+        setEndpoint($('endpoint').value);
+        probeServer();
+      });
 
       setIdle();
+      $('endpoint').value = getEndpoint();
       canvas.width = 640;
       canvas.height = 480;
+      window.addEventListener('focus', refreshAccount); // 从个人中心返回时刷新登录态
       log('页面就绪：本机没有摄像头时，选「用图片序列」也能验证识别 → 防抖 → 动作全链路');
     </script>
   </body>

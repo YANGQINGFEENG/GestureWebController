@@ -27,6 +27,8 @@ const DEFAULTS = {
   executeActions: true,
   mirror: true,
   debounce: {},
+  report: true,
+  token: null,
 };
 
 export class GestureWebController {
@@ -42,6 +44,8 @@ export class GestureWebController {
    * @param {object} [options.debounce] 覆盖防抖参数（frame/confThreshold/cooldownMs）
    * @param {object} [options.actions] 覆盖动作实现
    * @param {Window|HTMLElement} [options.container=window] 滚动与点击的作用域
+   * @param {boolean} [options.report=true] 是否把触发事件上报到后端记录表
+   * @param {string|Function} [options.token] 登录 token，或返回 token 的函数
    */
   constructor(options = {}) {
     const cfg = { ...DEFAULTS, ...options };
@@ -53,6 +57,9 @@ export class GestureWebController {
     this.conf = cfg.conf;
     this.imgsz = cfg.imgsz;
     this.canvas = cfg.canvas;
+    this.report = cfg.report !== false;
+    this._tokenSource = cfg.token ?? null;
+    this._guestId = `guest_${Math.random().toString(36).slice(2, 10)}`;
 
     this.overlay = new Overlay(cfg.canvas, { mirror: cfg.mirror });
     this._debounceOverride = { ...(cfg.debounce || {}) };
@@ -72,6 +79,8 @@ export class GestureWebController {
       hits: 0, // 有识别结果的帧数
       triggers: 0,
       errors: 0,
+      reports: 0, // 上报成功的触发次数
+      reportErrors: 0,
       lastInferMs: 0,
       avgInferMs: 0,
       startedAt: 0,
@@ -143,8 +152,7 @@ export class GestureWebController {
     this._emit('stopped', { stats: { ...this.stats } });
   }
 
-  /** 运行中切换帧来源（例如摄像头 → 图片序列），不重置统计 */
-  async switchSource(source) {
+  /** 运行中切换帧来源（例如摄像头 → 图片序列），不重置统计 */  async switchSource(source) {
     const wasRunning = this.running;
     if (wasRunning) {
       this.running = false;
@@ -214,6 +222,8 @@ export class GestureWebController {
       if (fired) {
         this.stats.triggers += 1;
         this._emit('gestureTrigger', { gesture: fired.gesture, streak: fired.streak, at: fired.at });
+        // 上报与动作并行：记录是附加能力，绝不能因为它慢而拖住翻页
+        this._reportGesture(fired.gesture);
         if (this.executeActions) {
           await this.actions.run(fired.gesture.action, fired.gesture);
         }
@@ -228,6 +238,62 @@ export class GestureWebController {
         this._scheduleNext(this._interval() - elapsed);
       }
     }
+  }
+
+  // ---------- 记录上报 ----------
+
+  /** 登录后设置 token；传 null 表示退出登录（记录将以游客身份入库，uid 为 null） */
+  setToken(token) {
+    this._tokenSource = token || null;
+  }
+
+  _currentToken() {
+    if (typeof this._tokenSource === 'function') {
+      try {
+        return this._tokenSource();
+      } catch {
+        return null;
+      }
+    }
+    return this._tokenSource;
+  }
+
+  /**
+   * 上报一次触发。刻意不 await、不抛错：
+   * 后端数据库挂掉时接口会返回 202 或直接失败，都不应影响页面上的手势动作。
+   */
+  _reportGesture(gesture) {
+    if (!this.report || !gesture) return;
+    // 后端 source 只接受固定几种取值；自定义帧源统一报 unknown，避免 422 把记录全吞掉
+    const allowed = ['camera', 'video', 'images'];
+    const kind = this.source?.kind;
+    const body = {
+      gesture_type: gesture.id,
+      confidence: Number(gesture.conf) || 0,
+      action: gesture.action || '',
+      source: allowed.includes(kind) ? kind : 'unknown',
+      infer_ms: Number(this.stats.lastInferMs) || 0,
+    };
+    const headers = { 'Content-Type': 'application/json' };
+    const token = this._currentToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    fetch(`${this.endpoint}/api/records/gesture`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      keepalive: true, // 页面切走时也能发完
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.detail || `上报返回 ${res.status}`);
+        if (data.saved) this.stats.reports += 1;
+        this._emit('report', { ok: Boolean(data.saved), gesture: gesture.id, data });
+      })
+      .catch((err) => {
+        this.stats.reportErrors += 1;
+        this._emit('report', { ok: false, gesture: gesture.id, error: err?.message || String(err) });
+      });
   }
 
   async _predict(blob) {

@@ -25,8 +25,11 @@ models/*.pth
 # ===== 运行期数据（数据库 / 上传 / 截图 / 本地测试图）=====
 data/testshots/
 data/*.db
+data/*.db-wal
+data/*.db-shm
 data/*.sqlite
 data/*.sqlite3
+data/.jwt_secret
 data/uploads/*
 data/screenshots/*
 !data/uploads/.gitkeep

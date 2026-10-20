@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GestureWebController · 个人中心</title>
+    <style>
+      :root {
+        --bg: #0b1020;
+        --panel: #131a2e;
+        --panel-2: #1a2340;
+        --line: #26304d;
+        --text: #e6e9f2;
+        --muted: #93a0bd;
+        --accent: #4f8cff;
+        --ok: #22c55e;
+        --warn: #f59e0b;
+        --err: #ef4444;
+        --radius: 12px;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(1200px 600px at 20% -10%, #16203c 0%, var(--bg) 60%);
+        color: var(--text);
+        font: 14px/1.6 system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+        min-height: 100vh;
+      }
+      header {
+        display: flex; align-items: center; gap: 12px;
+        padding: 18px 24px; border-bottom: 1px solid var(--line);
+        position: sticky; top: 0; z-index: 10;
+        background: rgba(11, 16, 32, 0.86); backdrop-filter: blur(8px);
+      }
+      header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+      header .spacer { flex: 1; }
+      a { color: var(--accent); text-decoration: none; }
+      .pill {
+        font-size: 12px; padding: 2px 10px; border-radius: 999px;
+        border: 1px solid var(--line); color: var(--muted); white-space: nowrap;
+      }
+      .pill.ok { color: #b7f7c9; border-color: #1f5f36; background: #0f2a1c; }
+      main { padding: 20px 24px 60px; display: grid; gap: 20px; max-width: 1180px; margin: 0 auto; }
+      .grid-2 { display: grid; grid-template-columns: minmax(320px, 380px) 1fr; gap: 20px; align-items: start; }
+      @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+      .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+      .card > h2 {
+        font-size: 13px; margin: 0; padding: 12px 16px; color: var(--muted);
+        border-bottom: 1px solid var(--line); font-weight: 600; letter-spacing: 0.4px;
+        display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      }
+      .card .body { padding: 16px; }
+      label.field { display: block; margin-bottom: 12px; font-size: 12px; color: var(--muted); }
+      label.field span { display: block; margin-bottom: 5px; }
+      input[type="text"], input[type="password"] {
+        font: inherit; width: 100%; color: var(--text); background: #0d1425;
+        border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px;
+      }
+      input:focus { outline: none; border-color: var(--accent); }
+      button {
+        font: inherit; color: var(--text); background: var(--panel-2);
+        border: 1px solid var(--line); border-radius: 8px; padding: 8px 16px; cursor: pointer;
+        transition: 0.15s;
+      }
+      button:hover:not(:disabled) { border-color: #3d4a72; background: #202b4d; }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #06122b; font-weight: 600; }
+      button.danger { border-color: #5b2222; color: #ffb4b4; }
+      button.tiny { padding: 3px 9px; font-size: 12px; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .tabs { display: flex; gap: 6px; padding: 12px 16px 0; }
+      .tabs button { border-radius: 8px 8px 0 0; }
+      .tabs button.active { background: var(--panel-2); border-color: var(--line); border-bottom-color: var(--panel-2); }
+      .msg { font-size: 12px; min-height: 18px; margin-top: 10px; }
+      .msg.err { color: #ffb4b4; }
+      .msg.ok { color: #b7f7c9; }
+      .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); }
+      .stats div { background: var(--panel); padding: 12px 14px; }
+      .stats b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+      .stats span { font-size: 11px; color: var(--muted); }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); }
+      th { color: var(--muted); font-weight: 500; font-size: 12px; }
+      tbody tr:hover { background: #17203a; }
+      .muted { color: var(--muted); }
+      .empty { padding: 28px 12px; text-align: center; color: var(--muted); }
+      .bars { display: grid; gap: 8px; }
+      .bar { display: grid; grid-template-columns: 84px 1fr 34px; gap: 10px; align-items: center; font-size: 12px; }
+      .bar .track { display: block; height: 8px; border-radius: 999px; background: #0d1425; overflow: hidden; }
+      .bar .fill { display: block; height: 100%; background: linear-gradient(90deg, #4f8cff, #7aa7ff); }
+      .hidden { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>个人中心</h1>
+      <span class="pill" id="who">未登录</span>
+      <div class="spacer"></div>
+      <a class="pill" href="index.html">← 返回演示页</a>
+    </header>
+
+    <main>
+      <!-- 未登录：登录 / 注册 -->
+      <section class="card hidden" id="authCard">
+        <div class="tabs">
+          <button id="tabLogin" class="active">登录</button>
+          <button id="tabRegister">注册</button>
+        </div>
+        <div class="body">
+          <label class="field"><span>账号</span><input type="text" id="authUser" autocomplete="username" placeholder="3~32 位字母、数字或下划线" /></label>
+          <label class="field"><span>密码</span><input type="password" id="authPass" autocomplete="current-password" placeholder="至少 6 位" /></label>
+          <label class="field hidden" id="nicknameField"><span>昵称</span><input type="text" id="authNick" placeholder="不填则用账号名" /></label>
+          <div class="row">
+            <button class="primary" id="btnAuth">登录</button>
+            <span class="muted" style="font-size: 12px">首次使用请先注册；演示管理员 admin / admin123456</span>
+          </div>
+          <div class="msg" id="authMsg"></div>
+        </div>
+      </section>
+
+      <!-- 已登录 -->
+      <section class="hidden" id="panel" style="display: grid; gap: 20px">
+        <div class="grid-2">
+          <section class="card">
+            <h2>我的信息</h2>
+            <div class="body">
+              <label class="field"><span>账号（不可修改）</span><input type="text" id="fUsername" disabled /></label>
+              <label class="field"><span>昵称</span><input type="text" id="fNickname" /></label>
+              <label class="field"><span>角色</span><input type="text" id="fRole" disabled /></label>
+              <label class="field"><span>注册时间</span><input type="text" id="fCreated" disabled /></label>
+              <div class="row">
+                <button class="primary" id="btnSaveProfile">保存昵称</button>
+                <button class="danger" id="btnLogout">退出登录</button>
+              </div>
+              <div class="msg" id="profileMsg"></div>
+
+              <hr style="border: 0; border-top: 1px solid var(--line); margin: 16px 0" />
+              <label class="field"><span>原密码</span><input type="password" id="oldPass" autocomplete="current-password" /></label>
+              <label class="field"><span>新密码</span><input type="password" id="newPass" autocomplete="new-password" placeholder="至少 6 位" /></label>
+              <button id="btnChangePass">修改密码</button>
+              <div class="msg" id="passMsg"></div>
+            </div>
+          </section>
+
+          <section style="display: grid; gap: 20px">
+            <div class="card">
+              <h2>我的数据</h2>
+              <div class="stats">
+                <div><b id="stTotal">0</b><span>手势记录</span></div>
+                <div><b id="stKinds">0</b><span>覆盖手势</span></div>
+                <div><b id="stConf">0%</b><span>平均置信度</span></div>
+                <div><b id="stDays">0</b><span>近 7 天活跃</span></div>
+              </div>
+            </div>
+            <div class="card">
+              <h2>手势分布</h2>
+              <div class="body bars" id="bars"><div class="muted">暂无数据，回演示页比几个手势试试</div></div>
+            </div>
+          </section>
+        </div>
+
+        <section class="card">
+          <h2>
+            <span>手势记录</span>
+            <span class="row">
+              <button class="tiny" id="btnRefresh">刷新</button>
+              <button class="tiny" id="btnPrev">上一页</button>
+              <span class="muted" id="pageInfo" style="font-size: 12px">—</span>
+              <button class="tiny" id="btnNext">下一页</button>
+            </span>
+          </h2>
+          <div id="tableWrap">
+            <div class="empty">加载中…</div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script type="module">
+      import { api, clearSession, getEndpoint, getUser, getToken, saveSession } from '../assets/auth.js';
+
+      const $ = (id) => document.getElementById(id);
+      const PAGE_SIZE = 10;
+      let page = 0;
+      let total = 0;
+      let mode = 'login';
+
+      const LABELS = {
+        victory: ['✌️', 'V 手势'],
+        point_up: ['☝️', '食指上指'],
+        open_palm: ['🖐️', '张开手掌'],
+        thumb_up: ['👍', '点赞'],
+        cross_fingers: ['🤞', '交叉手指'],
+        love_you: ['🤟', '爱与和平'],
+      };
+      const ACTIONS = {
+        scroll_up: '上翻页',
+        scroll_down: '下翻页',
+        screenshot: '截屏',
+        confirm: '确定',
+        image_recognition: '图片识别',
+        screenshot_ai_search: '截屏 + AI 搜索',
+      };
+
+      function setMsg(id, text, kind = '') {
+        const el = $(id);
+        el.textContent = text || '';
+        el.className = `msg ${kind}`;
+      }
+
+      function fmtTime(iso) {
+        if (!iso) return '—';
+        // 后端存 UTC，展示转本地时区
+        const d = new Date(iso);
+        return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('zh-CN', { hour12: false });
+      }
+
+      // ---------- 登录态切换 ----------
+      function render() {
+        const user = getUser();
+        const logged = Boolean(user && getToken());
+        $('authCard').classList.toggle('hidden', logged);
+        $('panel').classList.toggle('hidden', !logged);
+        $('who').textContent = logged
+          ? `${user.nickname || user.username}${user.role === 'admin' ? '（管理员）' : ''}`
+          : '未登录';
+        $('who').className = logged ? 'pill ok' : 'pill';
+        if (logged) {
+          $('fUsername').value = user.username || '';
+          $('fNickname').value = user.nickname || user.username || '';
+          $('fRole').value = user.role === 'admin' ? '管理员' : '普通用户';
+          $('fCreated').value = fmtTime(user.create_time);
+          loadAll();
+        }
+      }
+
+      // ---------- 登录 / 注册 ----------
+      $('tabLogin').addEventListener('click', () => {
+        mode = 'login';
+        $('tabLogin').classList.add('active');
+        $('tabRegister').classList.remove('active');
+        $('nicknameField').classList.add('hidden');
+        $('btnAuth').textContent = '登录';
+        setMsg('authMsg', '');
+      });
+
+      $('tabRegister').addEventListener('click', () => {
+        mode = 'register';
+        $('tabRegister').classList.add('active');
+        $('tabLogin').classList.remove('active');
+        $('nicknameField').classList.remove('hidden');
+        $('btnAuth').textContent = '注册并登录';
+        setMsg('authMsg', '');
+      });
+
+      $('btnAuth').addEventListener('click', async () => {
+        const username = $('authUser').value.trim();
+        const password = $('authPass').value;
+        if (!username || !password) return setMsg('authMsg', '账号和密码都要填', 'err');
+
+        $('btnAuth').disabled = true;
+        setMsg('authMsg', '处理中…');
+        try {
+          const payload =
+            mode === 'login'
+              ? await api('/api/auth/login', { method: 'POST', body: { username, password }, auth: false })
+              : await api('/api/auth/register', {
+                  method: 'POST',
+                  body: { username, password, nickname: $('authNick').value.trim() },
+                  auth: false,
+                });
+          saveSession(payload);
+          setMsg('authMsg', '', '');
+          $('authPass').value = '';
+          render();
+        } catch (err) {
+          setMsg('authMsg', err.message, 'err');
+        } finally {
+          $('btnAuth').disabled = false;
+        }
+      });
+
+      // ---------- 信息与密码 ----------
+      $('btnSaveProfile').addEventListener('click', async () => {
+        const nickname = $('fNickname').value.trim();
+        if (!nickname) return setMsg('profileMsg', '昵称不能为空', 'err');
+        try {
+          const data = await api('/api/auth/me', { method: 'PATCH', body: { nickname } });
+          saveSession({ user: data.user });
+          setMsg('profileMsg', '昵称已保存', 'ok');
+          render();
+        } catch (err) {
+          setMsg('profileMsg', err.message, 'err');
+        }
+      });
+
+      $('btnChangePass').addEventListener('click', async () => {
+        const old_password = $('oldPass').value;
+        const new_password = $('newPass').value;
+        if (!old_password || !new_password) return setMsg('passMsg', '原密码与新密码都要填', 'err');
+        try {
+          await api('/api/auth/me', { method: 'PATCH', body: { old_password, new_password } });
+          $('oldPass').value = '';
+          $('newPass').value = '';
+          setMsg('passMsg', '密码已修改，下次登录请用新密码', 'ok');
+        } catch (err) {
+          setMsg('passMsg', err.message, 'err');
+        }
+      });
+
+      $('btnLogout').addEventListener('click', () => {
+        clearSession();
+        render();
+      });
+
+      // ---------- 数据 ----------
+      async function loadAll() {
+        await Promise.all([loadStats(), loadRecords()]);
+      }
+
+      async function loadStats() {
+        try {
+          const { stats } = await api('/api/records/gesture/stats');
+          $('stTotal').textContent = stats.total ?? 0;
+          $('stKinds').textContent = Object.keys(stats.by_type || {}).length;
+          $('stConf').textContent = `${Math.round((stats.avg_confidence || 0) * 100)}%`;
+          $('stDays').textContent = Object.keys(stats.daily || {}).length;
+          renderBars(stats.by_type || {}, stats.total || 0);
+        } catch (err) {
+          setMsg('profileMsg', `统计读取失败：${err.message}`, 'err');
+        }
+      }
+
+      function renderBars(byType, total) {
+        const wrap = $('bars');
+        const entries = Object.entries(byType).sort((a, b) => b[1] - a[1]);
+        if (!entries.length) {
+          wrap.innerHTML = '<div class="muted">暂无数据，回演示页比几个手势试试</div>';
+          return;
+        }
+        const max = Math.max(...entries.map(([, n]) => n));
+        wrap.innerHTML = entries
+          .map(([id, n]) => {
+            const [emoji, label] = LABELS[id] || ['·', id];
+            const width = Math.max(4, Math.round((n / max) * 100));
+            return `<div class="bar">
+              <span title="${id}">${emoji} ${label}</span>
+              <span class="track"><span class="fill" style="width:${width}%"></span></span>
+              <span class="muted">${n}</span>
+            </div>`;
+          })
+          .join('');
+        wrap.insertAdjacentHTML(
+          'beforeend',
+          `<div class="muted" style="font-size:12px;margin-top:4px">共 ${total} 次触发</div>`
+        );
+      }
+
+      async function loadRecords() {
+        const wrap = $('tableWrap');
+        try {
+          const data = await api(`/api/records/gesture?limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`);
+          total = data.total ?? 0;
+          const items = data.items || [];
+          const maxPage = Math.max(0, Math.ceil(total / PAGE_SIZE) - 1);
+          $('pageInfo').textContent = `${page + 1} / ${maxPage + 1}　共 ${total} 条`;
+          $('btnPrev').disabled = page <= 0;
+          $('btnNext').disabled = page >= maxPage;
+
+          if (!items.length) {
+            wrap.innerHTML = '<div class="empty">还没有手势记录。回演示页比个 ✌️ 试试。</div>';
+            return;
+          }
+
+          wrap.innerHTML = `
+            <table>
+              <thead><tr>
+                <th style="width:64px">ID</th><th>手势</th><th>动作</th>
+                <th style="width:88px">置信度</th><th style="width:88px">耗时</th>
+                <th style="width:78px">来源</th><th style="width:170px">时间</th><th style="width:70px"></th>
+              </tr></thead>
+              <tbody>
+                ${items
+                  .map((r) => {
+                    const [emoji, label] = LABELS[r.gesture_type] || ['·', r.gesture_label || r.gesture_type];
+                    return `<tr>
+                      <td class="muted">${r.record_id}</td>
+                      <td>${emoji} ${label}</td>
+                      <td>${ACTIONS[r.action] || r.action || '—'}</td>
+                      <td>${(r.confidence * 100).toFixed(0)}%</td>
+                      <td class="muted">${Math.round(r.infer_ms)}ms</td>
+                      <td class="muted">${r.source}</td>
+                      <td class="muted">${fmtTime(r.create_time)}</td>
+                      <td><button class="tiny danger" data-del="${r.record_id}">删除</button></td>
+                    </tr>`;
+                  })
+                  .join('')}
+              </tbody>
+            </table>`;
+
+          for (const btn of wrap.querySelectorAll('[data-del]')) {
+            btn.addEventListener('click', async () => {
+              const id = btn.dataset.del;
+              btn.disabled = true;
+              try {
+                await api(`/api/records/gesture/${id}`, { method: 'DELETE' });
+                await loadAll();
+              } catch (err) {
+                btn.disabled = false;
+                alert(`删除失败：${err.message}`);
+              }
+            });
+          }
+        } catch (err) {
+          wrap.innerHTML = `<div class="empty">记录读取失败：${err.message}</div>`;
+        }
+      }
+
+      $('btnRefresh').addEventListener('click', loadAll);
+      $('btnPrev').addEventListener('click', () => {
+        if (page > 0) {
+          page -= 1;
+          loadRecords();
+        }
+      });
+      $('btnNext').addEventListener('click', () => {
+        page += 1;
+        loadRecords();
+      });
+
+      // 回车即提交，减少演示时的手忙脚乱
+      for (const id of ['authUser', 'authPass', 'authNick']) {
+        $(id).addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') $('btnAuth').click();
+        });
+      }
+
+      render();
+      console.log('接口地址：', getEndpoint());
+    </script>
+  </body>
+</html>

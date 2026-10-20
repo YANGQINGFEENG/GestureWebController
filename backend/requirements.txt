@@ -1,7 +1,8 @@
-# 后端运行时依赖（M0）
+# 后端运行时依赖
 # 安装：pip install -r backend/requirements.txt
 # 注意：ultralytics 会带入 torch（Windows 默认 CPU 版，约 200MB）
 
+# --- 手势识别（M0）---
 ultralytics>=8.3.0
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
@@ -9,3 +10,8 @@ python-multipart>=0.0.9
 PyYAML>=6.0
 numpy>=1.26
 pillow>=10.0
+
+# --- 数据库与鉴权（M2）---
+SQLAlchemy>=2.0
+bcrypt>=4.2
+PyJWT>=2.9

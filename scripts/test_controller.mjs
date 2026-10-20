@@ -97,10 +97,36 @@ function fakeSource(gestures, options = {}) {
 }
 
 // ---------------- fetch 替身 ----------------
-function installFetch(gesturesForFrame, { failTimes = 0 } = {}) {
+function installFetch(
+  gesturesForFrame,
+  { failTimes = 0, reportStatus = 201, reportReason = '数据库不可用' } = {}
+) {
   let fail = failTimes;
-  const seen = { predict: 0, health: 0 };
-  globalThis.fetch = async (url) => {
+  const seen = { predict: 0, health: 0, report: [] };
+  globalThis.fetch = async (url, options = {}) => {
+    if (String(url).endsWith('/api/records/gesture')) {
+      seen.report.push({
+        body: JSON.parse(options.body || '{}'),
+        headers: options.headers || {},
+        method: options.method,
+      });
+      if (reportStatus >= 400) {
+        return { ok: false, status: reportStatus, json: async () => ({ detail: '上报失败' }) };
+      }
+      // 202 表示"数据库不可用，未落库，但也不算失败"
+      if (reportStatus === 202) {
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({ ok: true, saved: false, reason: reportReason }),
+        };
+      }
+      return {
+        ok: true,
+        status: 201,
+        json: async () => ({ ok: true, saved: true, record: { record_id: seen.report.length } }),
+      };
+    }
     if (String(url).endsWith('/api/health')) {
       seen.health += 1;
       return {
@@ -274,8 +300,94 @@ await test('动作抛异常不会炸掉链路', async () => {
   assert.match(result.message, /故意抛错/);
 });
 
-console.log(`\n${failures.length ? '❌' : '✅'} 通过 ${passed}/${passed + failures.length}`);
-if (failures.length) {
+await test('触发后上报一次，字段与 token 正确', async () => {
+  const seen = installFetch(() => [G('victory')]);
+  const reports = [];
+  const ctrl = new GestureWebController({
+    canvas: stubCanvas(),
+    fps: 20,
+    debounce: { cooldownMs: 600 },
+    token: () => 'token-abc',
+  });
+  ctrl.on('report', (p) => reports.push(p));
+
+  await ctrl.start({ source: fakeSource() });
+  await sleep(400);
+  ctrl.stop();
+  await sleep(30); // 上报是 fire-and-forget，等它落地
+
+  assert.equal(seen.report.length, 1, `应只上报一次，实际 ${seen.report.length}`);
+  const sent = seen.report[0];
+  assert.equal(sent.method, 'POST');
+  assert.equal(sent.body.gesture_type, 'victory');
+  assert.equal(sent.body.source, 'unknown', '自定义帧源应报 unknown 而不是 422');
+  assert.equal(sent.headers.Authorization, 'Bearer token-abc', '登录态应带 token');
+  assert.equal(reports[0]?.ok, true, '应派发 report 成功事件');
+  assert.equal(ctrl.stats.reports, 1);
+});
+
+await test('数据库不可用（202 未落库）不影响动作执行', async () => {
+  installFetch(() => [G('victory')], { reportStatus: 202 });
+  const actionCalls = [];
+  const ctrl = new GestureWebController({
+    canvas: stubCanvas(),
+    fps: 20,
+    debounce: { cooldownMs: 600 },
+    actions: {
+      scroll_down: () => {
+        actionCalls.push(1);
+        return { ok: true, message: 'ok' };
+      },
+    },
+  });
+
+  await ctrl.start({ source: fakeSource() });
+  await sleep(400);
+  ctrl.stop();
+
+  assert.equal(actionCalls.length, 1, '上报未落库时动作必须照常执行');
+  assert.equal(ctrl.stats.reports, 0, '未落库不应计入成功数');
+});
+
+await test('上报接口报错不影响动作，且计入 reportErrors', async () => {
+  installFetch(() => [G('victory')], { reportStatus: 500 });
+  const actionCalls = [];
+  const ctrl = new GestureWebController({
+    canvas: stubCanvas(),
+    fps: 20,
+    debounce: { cooldownMs: 600 },
+    actions: {
+      scroll_down: () => {
+        actionCalls.push(1);
+        return { ok: true, message: 'ok' };
+      },
+    },
+  });
+
+  await ctrl.start({ source: fakeSource() });
+  await sleep(400);
+  ctrl.stop();
+  await sleep(30);
+
+  assert.equal(actionCalls.length, 1);
+  assert.equal(ctrl.stats.reportErrors, 1, '上报失败应被记录但不抛出');
+});
+
+await test('report:false 时完全不发上报请求', async () => {
+  const seen = installFetch(() => [G('victory')]);
+  const ctrl = new GestureWebController({
+    canvas: stubCanvas(),
+    fps: 20,
+    debounce: { cooldownMs: 600 },
+    report: false,
+  });
+  await ctrl.start({ source: fakeSource() });
+  await sleep(400);
+  ctrl.stop();
+  assert.equal(seen.report.length, 0, '关闭上报后不应有请求');
+});
+
+console.log(`\n${failures.length ? '❌' : '✅'} 通过 ${passed}/${passed + failures.length}`);if (failures.length) {
   for (const f of failures) console.error(`\n${f.name}\n${f.err.stack}`);
   process.exit(1);
 }

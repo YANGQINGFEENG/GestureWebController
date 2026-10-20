@@ -4,7 +4,8 @@
 model:
   path: models/YOLOv10n_gestures.pt   # 备选：YOLOv10x_gestures.pt（精度更高、更慢）
   imgsz: 640
-  conf: 0.7
+  conf: 0.7                            # 手势的默认置信度门槛（可被 gesture_map 的 min_conf 覆盖）
+  candidate_conf: 0.3                  # 送入 YOLO 的原始检出下限，低于此值连候选都不生成
   iou: 0.45
   max_det: 4
   device: cpu                          # cpu | cuda:0 | mps

@@ -26,6 +26,7 @@ class ModelConfig:
     path: Path
     imgsz: int = 640
     conf: float = 0.7
+    candidate_conf: float = 0.3
     iou: float = 0.45
     max_det: int = 4
     device: str = "cpu"
@@ -43,6 +44,7 @@ class Gesture:
     emoji: str = ""
     desc: str = ""
     fallbacks: tuple[str, ...] = ()
+    min_conf: float = 0.0  # >0 时覆盖 model.yaml 的 conf，用于近似映射的手势
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Gesture":
@@ -55,6 +57,7 @@ class Gesture:
             emoji=str(data.get("emoji", "")),
             desc=str(data.get("desc", "")),
             fallbacks=tuple(str(x) for x in (data.get("fallbacks") or ())),
+            min_conf=float(data.get("min_conf") or 0.0),
         )
 
 
@@ -94,6 +97,7 @@ def load_model_config() -> ModelConfig:
         path=model_path,
         imgsz=int(model.get("imgsz", 640)),
         conf=float(model.get("conf", 0.7)),
+        candidate_conf=float(model.get("candidate_conf", 0.3)),
         iou=float(model.get("iou", 0.45)),
         max_det=int(model.get("max_det", 4)),
         device=str(model.get("device", "cpu")),

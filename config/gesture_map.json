@@ -5,6 +5,7 @@
     "id": "手势语义标识，SDK 事件回调里返回这个值，与模型无关",
     "model_class": "当前权重中对应的 YOLO 类别名；换模型后若类别名不同，只改这一行",
     "fallbacks": "主类别没检出时依次尝试的备选类别",
+    "min_conf": "该手势的单帧置信度门槛，不填则用 model.yaml 的 conf；近似映射的手势（如 🤟 借 rock）分数天然偏低，单独放宽",
     "action": "SDK 注册的动作标识：scroll_up / scroll_down / screenshot / confirm / image_recognition / screenshot_ai_search"
   },
   "debounce": {
@@ -69,11 +70,12 @@
       "label": "爱与和平",
       "model_class": "rock",
       "model_class_target": "love_you",
+      "min_conf": 0.45,
       "fallbacks": [],
       "action": "screenshot_ai_search",
       "action_label": "截屏 + AI 搜索",
       "desc": "截屏后自动上传识别并回显结果",
-      "note": "预训练权重无 love_you 类，暂用姿态最接近的 rock(🤘)。微调补类后把 model_class 改成 love_you 即可，其余不动。"
+      "note": "预训练权重无 love_you 类，暂用姿态最接近的 rock(🤘)。实测真实 🤟 图在 rock 上得 0.51，低于全局 0.7，因此单列 min_conf=0.45。微调补类后把 model_class 改成 love_you、删掉 min_conf 即可。"
     }
   ],
   "ignored_classes": ["no_gesture"]

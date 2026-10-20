@@ -101,12 +101,18 @@ class GestureDetector:
         return self._model.predict(
             source=image,
             imgsz=int(imgsz or cfg.imgsz),
-            conf=float(conf if conf is not None else cfg.conf),
+            conf=float(conf if conf is not None else cfg.candidate_conf),
             iou=cfg.iou,
             max_det=cfg.max_det,
             device=cfg.device,
             verbose=False,
         )
+
+    def gate_for(self, gesture, override: float | None = None) -> float:
+        """该手势的最低置信度：显式传参 > 手势的 min_conf > 全局默认。"""
+        if override is not None:
+            return override
+        return gesture.min_conf if gesture.min_conf > 0 else self.model_cfg.conf
 
     def predict_bytes(
         self,
@@ -114,13 +120,22 @@ class GestureDetector:
         conf: float | None = None,
         imgsz: int | None = None,
     ) -> dict[str, Any]:
-        """单帧推理。返回 {gestures: [...], infer_ms, image_size}。"""
+        """单帧推理。返回 {gestures: [...], infer_ms, image_size}。
+
+        两段式阈值：
+        - `candidate_conf` 是送进 YOLO 的原始下限，只为拿到候选框（候选不一定算数）
+        - 每个手势自己的门槛（min_conf / 全局 conf / 显式传参）才决定是否进结果
+        这样近似映射的手势（如 🤟 借 rock 只有 0.5 左右）不会被全局阈值一刀切掉。
+        """
         self.load()
         image = decode_image(data)
         height, width = image.shape[:2]
 
+        raw_conf = self.model_cfg.candidate_conf if conf is None else min(
+            self.model_cfg.candidate_conf, conf
+        )
         started = time.perf_counter()
-        results = self._infer(image, conf=conf, imgsz=imgsz)
+        results = self._infer(image, conf=raw_conf, imgsz=imgsz)
         infer_ms = (time.perf_counter() - started) * 1000
 
         best: dict[str, dict[str, Any]] = {}
@@ -134,6 +149,9 @@ class GestureDetector:
                 gesture = self.gesture_map.match(model_class)
                 if gesture is None:
                     continue  # no_gesture 或未映射类别，直接丢弃
+                score = float(score)
+                if score < self.gate_for(gesture, conf):
+                    continue  # 低于该手势自己的门槛
                 item = {
                     "class": model_class,
                     "id": gesture.id,
@@ -141,7 +159,7 @@ class GestureDetector:
                     "emoji": gesture.emoji,
                     "action": gesture.action,
                     "action_label": gesture.action_label,
-                    "conf": round(float(score), 4),
+                    "conf": round(score, 4),
                     "box": [round(float(v), 1) for v in xyxy],
                 }
                 # 同一手势多只手时只留最高分，避免一次动作触发两次
@@ -166,10 +184,17 @@ class GestureDetector:
             "model_loaded": self.loaded,
             "imgsz": cfg.imgsz,
             "conf": cfg.conf,
+            "candidate_conf": cfg.candidate_conf,
             "device": cfg.device,
             "classes": len(self._names) if self.loaded else None,
             "gestures": [
-                {"id": g.id, "label": g.label, "model_class": g.model_class, "action": g.action}
+                {
+                    "id": g.id,
+                    "label": g.label,
+                    "model_class": g.model_class,
+                    "action": g.action,
+                    "min_conf": self.gate_for(g),
+                }
                 for g in self.gesture_map.gestures
             ],
             "debounce": self.gesture_map.debounce,

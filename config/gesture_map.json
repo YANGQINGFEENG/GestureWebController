@@ -1,0 +1,40 @@
+{
+  "_comment": "手势 → 动作 映射配置。修改本文件即可调整映射关系，无需改动 YOLO 推理核心代码。",
+  "_note": "class_name 需与 YOLO 模型的类别名保持一致；action 为 SDK 内部注册的动作标识。",
+  "debounce": {
+    "frame": 3,
+    "confThreshold": 0.7
+  },
+  "mapping": {
+    "victory": {
+      "action": "scroll_down",
+      "label": "下翻页",
+      "desc": "页面向下滚动 / 下一屏"
+    },
+    "point_up": {
+      "action": "scroll_up",
+      "label": "上翻页",
+      "desc": "页面向上滚动 / 上一屏"
+    },
+    "palm": {
+      "action": "screenshot",
+      "label": "截屏",
+      "desc": "抓取当前网页可视区域"
+    },
+    "thumb_up": {
+      "action": "confirm",
+      "label": "确定",
+      "desc": "模拟点击当前焦点元素"
+    },
+    "crossed_fingers": {
+      "action": "image_recognition",
+      "label": "触发图片识别",
+      "desc": "唤起图片上传并调用后端识别"
+    },
+    "love_you": {
+      "action": "screenshot_ai_search",
+      "label": "截屏 + AI 搜索",
+      "desc": "截屏后自动上传识别并回显结果"
+    }
+  }
+}

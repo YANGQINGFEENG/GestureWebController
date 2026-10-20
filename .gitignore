@@ -1,0 +1,51 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== Node =====
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# ===== 模型权重（体积大，不入库，见 models/README.md）=====
+models/*.pt
+models/*.onnx
+models/*.engine
+models/*.pth
+!models/README.md
+
+# ===== 运行期数据（数据库 / 上传 / 截图）=====
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/uploads/*
+data/screenshots/*
+!data/uploads/.gitkeep
+!data/screenshots/.gitkeep
+
+# ===== 环境变量与密钥 =====
+.env
+.env.*
+!.env.example
+*.key
+secrets.json
+
+# ===== IDE / 系统 =====
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== 构建产物 =====
+dist/
+build/
+*.log

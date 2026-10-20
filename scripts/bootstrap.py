@@ -118,12 +118,19 @@ def ensure_model(python: Path) -> None:
         total_mb = sum(w.stat().st_size for w in weights) / 1048576
         names = "、".join(w.name for w in weights)
         say(f"  ✓ 已有权重：{names}（{total_mb:.1f}MB）")
+        # 换电脑时权重常是拷过来的，拷一半 / 拷成快捷方式都会让文件"存在但无用"。
+        # 校验一次 sha256（21MB 约 0.1s），比等到推理时抛异常强。
+        if run([str(python), str(ROOT / "scripts" / "download_model.py"), "--verify"]) != 0:
+            say("\n  ✗ 权重文件校验不通过（可能没拷完整）。"
+                "重新下载：python scripts/download_model.py --force")
+            raise SystemExit(1)
         return
 
-    say("  没有找到权重，开始下载（约 22MB，从 GitHub 拉取预训练模型）…")
+    say("  没有找到权重，开始下载（约 22MB，从 HaGRID 官方存储拉取）…")
     code = run([str(python), str(ROOT / "scripts" / "download_model.py")])
     if code != 0:
-        say("\n  ✗ 权重下载失败。可以手动下载后放到 models/ 目录，见 docs/交接说明.md")
+        say("\n  ✗ 权重下载失败。也可以从旧电脑拷 models/YOLOv10n_gestures.pt 过来（21MB），"
+            "再用 python scripts/download_model.py --verify 确认。详见 docs/交接说明.md")
         raise SystemExit(1)
     say("  ✓ 权重就绪")
 

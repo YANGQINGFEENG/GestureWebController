@@ -23,7 +23,12 @@ models/*.pth
 !models/README.md
 
 # ===== 运行期数据（数据库 / 上传 / 截图 / 本地测试图）=====
-data/testshots/
+# testshots 下只有 single/ 入库：它是演示页「用示例图」、嵌入页示例、
+# test_api_m3/m4 共同依赖的 30 张手势样例（932KB）。
+# 其余（tiles 拼图 4.5MB、samples.jpg、user 个人素材）属于本地素材，不入库。
+data/testshots/*
+!data/testshots/single/
+!data/testshots/single/*.jpg
 data/*.db
 data/*.db-wal
 data/*.db-shm

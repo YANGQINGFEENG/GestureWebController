@@ -10,8 +10,9 @@
   },
   "debounce": {
     "frame": 3,
-    "confThreshold": 0.7,
-    "cooldownMs": 800
+    "confThreshold": 0.35,
+    "cooldownMs": 800,
+    "_note": "confThreshold 只是兜底保险，必须低于所有手势的 min_conf。后端已按每类门槛筛过一遍，前端若用 0.7 会再次挡掉 🤟（0.51）——这类二次过滤是最容易出现的隐形 bug。"
   },
   "gestures": [
     {

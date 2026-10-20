@@ -81,6 +81,16 @@ git add -A && git commit -m "feat: xxx"
 
 仓库已装提交前钩子：**改了 `backend/ frontend/ sdk/ scripts/ config/` 却没更新 `docs/开发进度.md`，提交会被拒绝**。安装钩子见 `scripts/install_hooks.sh`。
 
+### 改完代码请跑这三条（都不需要摄像头 / 浏览器）
+
+```bash
+node scripts/test_sdk.mjs           # 防抖纯逻辑（9 用例）
+node scripts/test_controller.mjs    # SDK 主循环集成（8 用例，DOM 桩）
+python scripts/check_gesture_map.py # 配置里的类别名与权重是否匹配
+```
+
+前端没有构建步骤、没有 node_modules 依赖，测试用 Node 内置模块直接跑——**不要为了测试引入打包工具**。
+
 ---
 
 ## 七、当前状态

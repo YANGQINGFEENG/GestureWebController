@@ -148,6 +148,49 @@ python scripts/predict_image.py 你的图片目录/ --annotate out/
 
 CPU 实测单帧 28~58ms（YOLOv10n / imgsz 640），模型首次加载约 3s。
 
+> 想知道某个手势在"手机拍的糊图 / 暗光 / 小图"下还认不认得出，用 `python scripts/stress_test.py 图片路径 --expect peace`，它会跑 17 种降质条件并告诉你能用的最小帧宽。
+
+---
+
+## 前端演示页
+
+一条命令同时起后端与静态服务（跨机器开发最容易漏的就是静态服务，`file://` 下 ES Module 会加载失败）：
+
+```bash
+.venv/Scripts/python scripts/start_dev.py      # Windows
+.venv/bin/python scripts/start_dev.py          # macOS / Linux
+```
+
+打开 http://127.0.0.1:8080/frontend/pages/index.html 即可。
+
+页面支持三种帧来源，**没有摄像头也能跑通整条链路**：
+
+| 来源 | 用途 |
+| --- | --- |
+| 摄像头 | 正常演示，需要 `localhost` 或 https（浏览器安全限制） |
+| 本地视频 | 用录制好的画面反复回放，适合排查"为什么这个手势不触发" |
+| 图片序列 | 每张停留 1.5 秒，用来稳定验证"识别 → 防抖 → 动作执行" |
+
+### SDK 接入（业务页 3 行）
+
+```html
+<canvas id="cam"></canvas>
+<script type="module">
+  import { GestureWebController } from './sdk/src/index.js';
+  const ctrl = new GestureWebController({ canvas: document.querySelector('#cam') });
+  await ctrl.start();                                   // 默认开摄像头
+  ctrl.on('gestureTrigger', ({ gesture }) => console.log(gesture.id, gesture.action));
+</script>
+```
+
+业务方不想用默认动作实现时，传 `actions: { scroll_down: fn, screenshot: fn }` 整条接管，或用 `ctrl.actions.register(action, fn)` 单独替换。
+
+### 测试
+
+```bash
+node scripts/test_sdk.mjs           # 防抖纯逻辑：9 个用例（无需浏览器）
+node scripts/test_controller.mjs    # 主循环集成测试：8 个用例（DOM 桩，无需摄像头）
+```
 
 ---
 

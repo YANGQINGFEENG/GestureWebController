@@ -1,0 +1,274 @@
+/**
+ * GestureWebController：对外唯一入口。
+ *
+ * 用法：
+ *   const ctrl = new GestureWebController({ canvas, endpoint: 'http://127.0.0.1:8000' });
+ *   await ctrl.start();                        // 默认开摄像头
+ *   await ctrl.start({ source: myImageSource }); // 或者换任意帧来源（无摄像头时）
+ *   ctrl.on('gestureTrigger', ({ gesture }) => console.log(gesture.id));
+ *
+ * 一条时间线：抽帧（出帧率 fps）→ 上传识别 → 防抖 → 执行动作；
+ * 预览单独走 requestAnimationFrame，保证画面 60fps 不跟着识别卡顿。
+ */
+
+import { ActionRunner } from './actions.js';
+import { FrameSource } from './capture.js';
+import { GestureDebouncer } from './debounce.js';
+import { Overlay } from './overlay.js';
+
+export { FrameSource } from './capture.js';
+export { GestureDebouncer } from './debounce.js';
+export { Overlay } from './overlay.js';
+export { ActionRunner, ACTIONS } from './actions.js';
+
+const DEFAULTS = {
+  endpoint: 'http://127.0.0.1:8000',
+  fps: 8,
+  executeActions: true,
+  mirror: true,
+  debounce: {},
+};
+
+export class GestureWebController {
+  /**
+   * @param {object} options
+   * @param {HTMLCanvasElement} options.canvas 预览画布（框会画在上面）
+   * @param {string} [options.endpoint] 后端地址
+   * @param {number} [options.fps=8] 抽帧频率
+   * @param {number} [options.conf] 覆盖后端默认门槛（调试用，一般不要传）
+   * @param {number} [options.imgsz] 覆盖推理分辨率
+   * @param {boolean} [options.executeActions=true] 是否自动执行动作
+   * @param {boolean} [options.mirror=true] 预览镜像
+   * @param {object} [options.debounce] 覆盖防抖参数（frame/confThreshold/cooldownMs）
+   * @param {object} [options.actions] 覆盖动作实现
+   * @param {Window|HTMLElement} [options.container=window] 滚动与点击的作用域
+   */
+  constructor(options = {}) {
+    const cfg = { ...DEFAULTS, ...options };
+    if (!cfg.canvas) throw new Error('缺少 canvas：预览需要一张画布');
+
+    this.endpoint = String(cfg.endpoint).replace(/\/+$/, '');
+    this.fps = Math.min(30, Math.max(1, Number(cfg.fps) || 8));
+    this.executeActions = cfg.executeActions !== false;
+    this.conf = cfg.conf;
+    this.imgsz = cfg.imgsz;
+    this.canvas = cfg.canvas;
+
+    this.overlay = new Overlay(cfg.canvas, { mirror: cfg.mirror });
+    this._debounceOverride = { ...(cfg.debounce || {}) };
+    this.debouncer = new GestureDebouncer(this._debounceOverride);
+    this.actions = new ActionRunner({
+      container: cfg.container || window,
+      handlers: cfg.actions,
+      onAction: (payload) => this._emit('action', payload),
+    });
+
+    this.source = null;
+    this.running = false;
+    this.frameSize = { width: 640, height: 480 };
+    this.lastGestures = [];
+    this.stats = {
+      frames: 0,
+      hits: 0, // 有识别结果的帧数
+      triggers: 0,
+      errors: 0,
+      lastInferMs: 0,
+      avgInferMs: 0,
+      startedAt: 0,
+    };
+
+    this._handlers = new Map();
+    this._raf = 0;
+    this._timer = 0;
+    this._busy = false;
+  }
+
+  // ---------- 事件 ----------
+
+  on(event, cb) {
+    if (!this._handlers.has(event)) this._handlers.set(event, new Set());
+    this._handlers.get(event).add(cb);
+    return () => this.off(event, cb);
+  }
+
+  off(event, cb) {
+    this._handlers.get(event)?.delete(cb);
+  }
+
+  _emit(event, payload) {
+    const set = this._handlers.get(event);
+    if (!set) return;
+    for (const cb of set) {
+      try {
+        cb(payload);
+      } catch (err) {
+        console.error(`[GestureWebController] ${event} 回调异常`, err);
+      }
+    }
+  }
+
+  // ---------- 生命周期 ----------
+
+  /**
+   * 启动。
+   * @param {object} [opts]
+   * @param {FrameSource} [opts.source] 指定帧来源；不传则开摄像头
+   */
+  async start(opts = {}) {
+    if (this.running) return this;
+    this.source = opts.source || (await FrameSource.camera());
+    this.running = true;
+    this.stats.startedAt = Date.now();
+
+    await this._syncServerConfig();
+    this.debouncer.reset();
+    this.overlay.idle('正在识别…');
+
+    this._loopPreview();
+    this._emit('started', { source: this.source.kind, label: this.source.label, fps: this.fps });
+    this._scheduleNext(0);
+    return this;
+  }
+
+  stop() {
+    this.running = false;
+    clearTimeout(this._timer);
+    cancelAnimationFrame(this._raf);
+    this._raf = 0;
+    this.source?.stop?.();
+    this.source = null;
+    this.lastGestures = [];
+    this.debouncer.reset();
+    this.overlay.idle('已停止');
+    this._emit('stopped', { stats: { ...this.stats } });
+  }
+
+  /** 运行中切换帧来源（例如摄像头 → 图片序列），不重置统计 */
+  async switchSource(source) {
+    const wasRunning = this.running;
+    if (wasRunning) {
+      this.running = false;
+      clearTimeout(this._timer);
+      cancelAnimationFrame(this._raf);
+      this.source?.stop?.();
+    }
+    this.source = source;
+    this.debouncer.reset();
+    if (wasRunning) {
+      this.running = true;
+      this._loopPreview();
+      this._scheduleNext(0);
+    }
+  }
+
+  // ---------- 内部循环 ----------
+
+  /** 预览独立 60fps：只重画，不发请求 */
+  _loopPreview() {
+    const draw = () => {
+      if (!this.running || !this.source) return;
+      if (this.source.ready) {
+        this.overlay.render(this.source, this.lastGestures, this.frameSize);
+      }
+      this._raf = requestAnimationFrame(draw);
+    };
+    this._raf = requestAnimationFrame(draw);
+  }
+
+  _scheduleNext(delay = this._interval()) {
+    clearTimeout(this._timer);
+    this._timer = setTimeout(() => this._tick(), Math.max(0, delay));
+  }
+
+  _interval() {
+    return Math.round(1000 / this.fps);
+  }
+
+  async _tick() {
+    if (!this.running || !this.source || this._busy) return;
+    this._busy = true;
+    const started = performance.now();
+    try {
+      const frame = await this.source.grab();
+      this.frameSize = { width: frame.width, height: frame.height };
+      const data = await this._predict(frame.blob);
+
+      this.stats.frames += 1;
+      this.stats.lastInferMs = data.infer_ms ?? 0;
+      this.stats.avgInferMs =
+        (this.stats.avgInferMs * (this.stats.frames - 1) + this.stats.lastInferMs) /
+        this.stats.frames;
+
+      const gestures = Array.isArray(data.gestures) ? data.gestures : [];
+      this.lastGestures = gestures;
+      if (gestures.length) this.stats.hits += 1;
+
+      const fired = this.debouncer.push(gestures);
+      this._emit('frame', {
+        gestures,
+        inferMs: this.stats.lastInferMs,
+        streak: this.debouncer.state,
+        triggered: Boolean(fired),
+      });
+
+      if (fired) {
+        this.stats.triggers += 1;
+        this._emit('gestureTrigger', { gesture: fired.gesture, streak: fired.streak, at: fired.at });
+        if (this.executeActions) {
+          await this.actions.run(fired.gesture.action, fired.gesture);
+        }
+      }
+    } catch (err) {
+      this.stats.errors += 1;
+      this._emit('error', { error: err, message: err?.message || String(err) });
+    } finally {
+      this._busy = false;
+      if (this.running) {
+        const elapsed = performance.now() - started;
+        this._scheduleNext(this._interval() - elapsed);
+      }
+    }
+  }
+
+  async _predict(blob) {
+    const form = new FormData();
+    form.append('frame', blob, 'frame.jpg');
+    if (this.conf != null) form.append('conf', String(this.conf));
+    if (this.imgsz != null) form.append('imgsz', String(this.imgsz));
+
+    const res = await fetch(`${this.endpoint}/api/predict`, { method: 'POST', body: form });
+    if (!res.ok) {
+      let detail = '';
+      try {
+        detail = (await res.json())?.detail ?? '';
+      } catch {
+        /* 忽略非 JSON 错误体 */
+      }
+      throw new Error(`识别接口返回 ${res.status}${detail ? `：${detail}` : ''}`);
+    }
+    return res.json();
+  }
+
+  /** 从后端取防抖参数（配置只有一处来源，前端不硬编码） */
+  async _syncServerConfig() {
+    try {
+      const res = await fetch(`${this.endpoint}/api/health`);
+      if (!res.ok) return;
+      const health = await res.json();
+      const d = health.debounce || {};
+      // 页面显式指定的参数优先，不被服务端覆盖
+      const merged = {
+        frame: this._debounceOverride.frame ?? d.frame ?? this.debouncer.frame,
+        confThreshold:
+          this._debounceOverride.confThreshold ?? d.confThreshold ?? this.debouncer.confThreshold,
+        cooldownMs: this._debounceOverride.cooldownMs ?? d.cooldownMs ?? this.debouncer.cooldownMs,
+      };
+      this.debouncer.frame = merged.frame;
+      this.debouncer.confThreshold = merged.confThreshold;
+      this.debouncer.cooldownMs = merged.cooldownMs;
+      this._emit('config', { health, debounce: merged });
+    } catch {
+      /* 后端没起时不去打扰用户，识别请求会给出更明确的错误 */
+    }
+  }
+}

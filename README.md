@@ -4,6 +4,20 @@
 
 前端采集摄像头视频流，后端用 YOLO 预训练权重做手势检测，识别结果映射为网页交互指令（上翻 / 下翻 / 截屏 / 确定 / 触发图片识别 / 截屏 + AI 搜索），由前端 JS 直接操控当前页面。工具解耦设计，业务页面只需引入一个脚本即可接入。
 
+## 先看这里（换电脑 / 换 AI 接手）
+
+| 我想… | 打开 |
+| --- | --- |
+| 知道现在做到哪一步 | [`docs/开发进度.md`](docs/开发进度.md) —— front matter 就是当前状态 |
+| 在新电脑上跑起来 | [`docs/交接说明.md`](docs/交接说明.md) |
+| 了解为什么这样设计 | [`docs/决策记录.md`](docs/决策记录.md)（ADR） |
+| 看最近谁改了什么 | [`docs/开发日志.md`](docs/开发日志.md) |
+| 让 AI 助手接手 | [`AGENTS.md`](AGENTS.md) |
+| 完整需求与计划 | [`docs/GestureWebController需求文档.md`](docs/GestureWebController需求文档.md)、[`docs/技术选型与开发计划.md`](docs/技术选型与开发计划.md) |
+
+> 跑起来三连：`python scripts/download_model.py` → `sh scripts/install_hooks.sh` → `python scripts/check_gesture_map.py`
+
+
 ---
 
 ## 核心能力

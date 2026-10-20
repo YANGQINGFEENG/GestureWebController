@@ -1,0 +1,33 @@
+#!/bin/sh
+# 提交前钩子：改了代码却没更新进度看板 -> 拦下
+# 安装：sh scripts/install_hooks.sh
+
+staged=$(git -c core.quotepath=false diff --cached --name-only)
+[ -z "$staged" ] && exit 0
+
+# 代码/配置类改动（排除钩子自身）
+code=$(printf '%s\n' "$staged" \
+  | grep -E '^(backend|frontend|sdk|config)/|^scripts/[^/]+\.(py|js)$' \
+  | grep -v '^scripts/hooks/' \
+  | head -5)
+
+# 进度看板是否在本次提交里
+progress=$(printf '%s\n' "$staged" | grep -x 'docs/开发进度.md')
+
+if [ -n "$code" ] && [ -z "$progress" ]; then
+  echo ""
+  echo "✋ 提交被拦下：改了代码/配置，但没有更新 docs/开发进度.md"
+  echo ""
+  echo "  本次涉及的代码文件："
+  printf '%s\n' "$code" | sed 's/^/    /'
+  echo ""
+  echo "  请先做这两件事："
+  echo "    1. 更新 docs/开发进度.md（front matter 四个字段 + 清单勾选）"
+  echo "    2. python scripts/log_progress.py \"本次做了什么\" --next \"下一步\""
+  echo ""
+  echo "  确属无需记录的改动（纯注释、格式化），可用：git commit --no-verify"
+  echo ""
+  exit 1
+fi
+
+exit 0

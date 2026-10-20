@@ -38,6 +38,9 @@ data/screenshots/*
 *.key
 secrets.json
 
+# ===== 工具本地数据 =====
+.workbuddy/
+
 # ===== IDE / 系统 =====
 .idea/
 .vscode/

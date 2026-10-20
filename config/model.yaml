@@ -1,0 +1,18 @@
+# YOLO 手势检测模型配置
+# 权重文件不入库，用 scripts/download_model.py 拉取
+
+model:
+  path: models/YOLOv10n_gestures.pt   # 备选：YOLOv10x_gestures.pt（精度更高、更慢）
+  imgsz: 640
+  conf: 0.7
+  iou: 0.45
+  max_det: 4
+  device: cpu                          # cpu | cuda:0 | mps
+
+# 权重来源（下载脚本据此校验）
+source:
+  provider: HaGRIDv2 (hukenovs/hagrid)
+  license: CC BY-SA 4.0
+  url: https://rndml-team-cv.obs.ru-moscow-1.hc.sbercloud.ru/datasets/hagrid_v2/models/YOLOv10n_gestures.pt
+  size_bytes: 22442394
+  classes: 34

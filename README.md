@@ -8,14 +8,17 @@
 
 ## 核心能力
 
-| 手势 | 动作 | 说明 |
-| ---- | ---- | ---- |
-| ✌️ | 下翻页 | 页面向下滚动 / 下一屏 |
-| ☝️ | 上翻页 | 页面向上滚动 / 上一屏 |
-| 🖐️ | 截屏 | 抓取当前网页可视区域 |
-| 👍 | 确定 | 模拟点击焦点元素 |
-| 🤞 | 触发图片识别 | 唤起图片上传，后端识别图片内容 |
-| 🤟 | 截屏 + AI 搜索 | 自动截屏 → 上传 → 识别 → 结果回显 |
+| 手势 | 模型类别 | 动作 | 说明 |
+| ---- | ---- | ---- | ---- |
+| ✌️ | `peace` | 下翻页 | 页面向下滚动 / 下一屏 |
+| ☝️ | `point` | 上翻页 | 页面向上滚动 / 上一屏 |
+| 🖐️ | `palm` | 截屏 | 抓取当前网页可视区域 |
+| 👍 | `like` | 确定 | 模拟点击焦点元素 |
+| 🤞 | `xsign` | 触发图片识别 | 唤起图片上传，后端识别图片内容 |
+| 🤟 | `rock`（近似映射） | 截屏 + AI 搜索 | 自动截屏 → 上传 → 识别 → 结果回显 |
+
+> 前 5 个类别与 HaGRIDv2 预训练权重精确对应；🤟 在模型中没有对应类别，暂用姿态最接近的 `rock`(🤘) 映射，后续通过增类微调补齐。
+
 
 **防抖机制**：连续 3 帧识别到同一手势且置信度 ≥ 0.7 才触发动作，避免抖动误触发。
 手势与动作的映射写在 `config/gesture_map.json`，改配置即可，无需改动推理核心代码。
@@ -26,7 +29,7 @@
 
 | 模块 | 技术 |
 | ---- | ---- |
-| 手势检测 | YOLOv8（Ultralytics）+ 开源手势预训练权重 |
+| 手势检测 | Ultralytics YOLO + HaGRIDv2 预训练权重（34 类，默认 YOLOv10n，可换 YOLOv8n 自定义权重） |
 | 后端服务 | Python / FastAPI，独立 API 服务，可单独启动 |
 | 前端 SDK | 原生 JS，摄像头采集 + Canvas 绘制 + html2canvas 截屏 |
 | 数据库 | 关系型数据库，4 张表（user / gesture_record / image_record / chat_record） |
@@ -87,12 +90,18 @@ gestureCtrl.on("imageRecDone", (res) => console.log("图片识别：", res.resul
 
 ## 开源来源与致谢
 
-本项目基于 GitHub 公开的 YOLO 手势识别仓库二次开发，复用其预训练权重与检测推理代码，在 Web 端封装为可复用的手势控制 SDK：
+本项目建立在以下开源工作之上，复用其模型、权重与设计经验，Web 全栈部分为自研：
 
-- [ultralytics/ultralytics](https://github.com/ultralytics/ultralytics) —— YOLOv8 官方框架，AGPL-3.0
-- YOLOv8 Hand Gesture Detection 类开源手势检测仓库（具体仓库与协议随权重引入时在 `docs/` 补充登记）
+| 项目 | 协议 | 本项目复用的部分 |
+| --- | --- | --- |
+| [hukenovs/hagrid](https://github.com/hukenovs/hagrid)（HaGRIDv2） | CC BY-SA 4.0 | 手势检测**预训练权重**（34 类），及可用于增类微调的标注数据 |
+| [ultralytics/ultralytics](https://github.com/ultralytics/ultralytics) | AGPL-3.0 | YOLO 训练 / 推理 / 模型导出框架 |
+| [Kazuhito00/hand-gesture-recognition-using-mediapipe](https://github.com/Kazuhito00/hand-gesture-recognition-using-mediapipe) | Apache-2.0 | 手势判定、点历史平滑、防抖与 Web demo 的**设计参考**（未复制代码） |
 
-使用时请遵守上游项目开源协议。
+模型权重体积较大，不入库，通过 `scripts/download_model.py` 拉取；衍生权重同样以 CC BY-SA 4.0 方式共享。
+
+技术选型依据、6 种手势与模型类别的映射核对、分阶段里程碑见 [docs/技术选型与开发计划.md](docs/技术选型与开发计划.md)。
+
 
 ---
 

@@ -1,40 +1,53 @@
 {
-  "_comment": "手势 → 动作 映射配置。修改本文件即可调整映射关系，无需改动 YOLO 推理核心代码。",
-  "_note": "class_name 需与 YOLO 模型的类别名保持一致；action 为 SDK 内部注册的动作标识。",
+  "_comment": "手势 → 动作 映射。class 使用 HaGRIDv2 / YOLOv10n_gestures.pt 的真实类别名，改这里即可改映射，不动推理代码。",
+  "_model": "models/YOLOv10n_gestures.pt（34 类，含 no_gesture）",
   "debounce": {
     "frame": 3,
-    "confThreshold": 0.7
+    "confThreshold": 0.7,
+    "cooldownMs": 800
   },
   "mapping": {
-    "victory": {
+    "peace": {
       "action": "scroll_down",
+      "emoji": "✌️",
       "label": "下翻页",
       "desc": "页面向下滚动 / 下一屏"
     },
-    "point_up": {
+    "point": {
       "action": "scroll_up",
+      "emoji": "☝️",
       "label": "上翻页",
-      "desc": "页面向上滚动 / 上一屏"
+      "desc": "页面向上滚动 / 上一屏",
+      "fallback": ["one"]
     },
     "palm": {
       "action": "screenshot",
+      "emoji": "🖐️",
       "label": "截屏",
-      "desc": "抓取当前网页可视区域"
+      "desc": "抓取当前网页可视区域",
+      "fallback": ["stop"]
     },
-    "thumb_up": {
+    "like": {
       "action": "confirm",
+      "emoji": "👍",
       "label": "确定",
       "desc": "模拟点击当前焦点元素"
     },
-    "crossed_fingers": {
+    "xsign": {
       "action": "image_recognition",
+      "emoji": "🤞",
       "label": "触发图片识别",
       "desc": "唤起图片上传并调用后端识别"
     },
-    "love_you": {
+    "rock": {
       "action": "screenshot_ai_search",
+      "emoji": "🤟",
       "label": "截屏 + AI 搜索",
-      "desc": "截屏后自动上传识别并回显结果"
+      "desc": "截屏后自动上传识别并回显结果",
+      "note": "模型无 🤟 类，暂用 rock(🤘) 近似映射；M4 阶段自采样本微调后改为 love_you"
     }
-  }
+  },
+  "ignored_classes": [
+    "no_gesture"
+  ]
 }

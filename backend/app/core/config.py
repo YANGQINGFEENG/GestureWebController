@@ -116,10 +116,28 @@ class RecordConfig:
 
 
 @dataclass(frozen=True)
+class UploadConfig:
+    """图片识别的落盘策略。图片只存磁盘，库里记相对路径（ADR-014）。"""
+
+    enabled: bool = True
+    dir: Path = ROOT / "data" / "uploads"
+    max_side: int = 1280
+    jpeg_quality: int = 82
+    max_bytes: int = 8 * 1024 * 1024
+    keep_days: int = 0
+
+    @property
+    def url_prefix(self) -> str:
+        """对外访问前缀，与 main.py 里挂载的 /media/uploads 对应。"""
+        return "/media/uploads"
+
+
+@dataclass(frozen=True)
 class AppConfig:
     database: DatabaseConfig
     auth: AuthConfig
     records: RecordConfig
+    upload: UploadConfig
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -149,6 +167,13 @@ def load_app_config() -> AppConfig:
     db = raw.get("database") or {}
     auth = raw.get("auth") or {}
     records = raw.get("records") or {}
+    upload = raw.get("upload") or {}
+
+    upload_dir = Path(
+        os.getenv("GWC_UPLOAD_DIR") or str(upload.get("dir", "data/uploads"))
+    )
+    if not upload_dir.is_absolute():
+        upload_dir = ROOT / upload_dir
 
     return AppConfig(
         database=DatabaseConfig(
@@ -167,6 +192,14 @@ def load_app_config() -> AppConfig:
         records=RecordConfig(
             enabled=_env_bool("GWC_RECORDS_ENABLED", bool(records.get("enabled", True))),
             max_per_user=int(records.get("max_per_user", 0)),
+        ),
+        upload=UploadConfig(
+            enabled=_env_bool("GWC_UPLOAD_ENABLED", bool(upload.get("enabled", True))),
+            dir=upload_dir,
+            max_side=int(upload.get("max_side", 1280)),
+            jpeg_quality=int(upload.get("jpeg_quality", 82)),
+            max_bytes=int(upload.get("max_bytes", 8 * 1024 * 1024)),
+            keep_days=int(upload.get("keep_days", 0)),
         ),
     )
 

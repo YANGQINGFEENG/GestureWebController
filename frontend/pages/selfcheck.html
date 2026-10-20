@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>截屏链路自检 · GestureWebController</title>
+    <!--
+      自检页（不是演示页）：打开就自动跑一次 captureViewport，把结果写成一行 CHECK JSON。
+      用途：没摄像头、没手势素材时，单独验证 M3-2 截屏链路 —— html2canvas 能加载、
+      能按视口截图、产物不是空白。scripts/check_screenshot.py 会用无头浏览器读这行。
+      手工验证：起静态服务后打开本页，页面底部会显示截图预览与指标。
+    -->
+    <style>
+      :root { color-scheme: light; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; padding: 24px 28px 80px; background: #ffffff; color: #101828;
+        font: 14px/1.6 system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+      }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      .sub { color: #475467; margin-bottom: 18px; }
+      .row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+      .swatch { width: 120px; height: 72px; border-radius: 10px; }
+      .s1 { background: linear-gradient(135deg, #4f8cff, #22c55e); }
+      .s2 { background: #f59e0b; }
+      .s3 { background: #ef4444; }
+      .s4 { background: #8b5cf6; }
+      table { border-collapse: collapse; width: 100%; max-width: 640px; margin-bottom: 18px; }
+      th, td { border: 1px solid #d0d5dd; padding: 6px 10px; text-align: left; font-size: 13px; }
+      th { background: #f2f4f7; }
+      #status {
+        border: 1px solid #d0d5dd; border-radius: 10px; background: #f9fafb;
+        padding: 12px 14px; font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+        white-space: pre-wrap; word-break: break-all; margin-bottom: 18px;
+      }
+      #preview { max-width: 100%; border: 1px solid #d0d5dd; border-radius: 10px; display: block; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <h1>截屏链路自检</h1>
+    <div class="sub">打开即自动截取当前视口；下面会显示截图预览与量化指标（尺寸 / 体积 / 颜色数 / 平均亮度）。</div>
+
+    <div class="row">
+      <div class="swatch s1"></div>
+      <div class="swatch s2"></div>
+      <div class="swatch s3"></div>
+      <div class="swatch s4"></div>
+    </div>
+
+    <table>
+      <thead>
+        <tr><th>项</th><th>期望</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>截图尺寸</td><td>等于视口 × scale</td></tr>
+        <tr><td>颜色数</td><td>&gt; 20（说明不是一张纯色空白图）</td></tr>
+        <tr><td>平均亮度</td><td>15 ~ 252（排除全黑 / 全过曝）</td></tr>
+      </tbody>
+    </table>
+
+    <div id="status">准备中…</div>
+    <div id="previewBox" hidden>
+      <strong>截图预览（由 SDK 截出来的图）</strong>
+      <img id="preview" alt="截图预览" />
+    </div>
+
+    <!-- 手动引入截图库：SDK 的懒加载会直接复用这个全局变量。
+         这样自检页在无头浏览器（--dump-dom）里也能稳定跑完，不依赖动态 script 注入的时序。 -->
+    <script src="../../sdk/vendor/html2canvas.min.js"></script>
+    <script type="module">
+      import { captureViewport } from '../../sdk/src/screenshot.js';
+
+      const statusEl = document.getElementById('status');
+      statusEl.textContent = '模块已加载，开始截屏…';
+      window.addEventListener('error', (e) => {
+        statusEl.textContent = `CHECK ${JSON.stringify({ ok: false, error: String(e.message || e) })}`;
+      });
+      window.addEventListener('unhandledrejection', (e) => {
+        statusEl.textContent = `CHECK ${JSON.stringify({ ok: false, error: String(e.reason?.message || e.reason) })}`;
+      });
+
+      function emit(payload) {
+        statusEl.textContent = `CHECK ${JSON.stringify(payload)}`;
+        // 便于人工一眼看到，也便于脚本 grep
+        console.log('CHECK', payload);
+      }
+
+      async function analyze(dataUrl) {
+        const img = new Image();
+        img.src = dataUrl;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = Math.min(240, img.width);
+        c.height = Math.min(240, img.height);
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        const { data } = ctx.getImageData(0, 0, c.width, c.height);
+        const colors = new Set();
+        let sum = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          colors.add(`${data[i] >> 4},${data[i + 1] >> 4},${data[i + 2] >> 4}`);
+          sum += (data[i] + data[i + 1] + data[i + 2]) / 3;
+        }
+        return { colors: colors.size, avg: Number((sum / (data.length / 4)).toFixed(1)) };
+      }
+
+      async function run() {
+        try {
+          const shot = await captureViewport({ scale: 1, type: 'image/png' });
+          const stats = await analyze(shot.dataUrl);
+          document.getElementById('preview').src = shot.dataUrl;
+          document.getElementById('previewBox').hidden = false;
+          emit({
+            ok: true,
+            cssWidth: shot.cssWidth,
+            cssHeight: shot.cssHeight,
+            width: shot.width,
+            height: shot.height,
+            bytes: shot.blob.size,
+            ms: shot.ms,
+            colors: stats.colors,
+            avg: stats.avg,
+            type: shot.type,
+          });
+        } catch (err) {
+          emit({ ok: false, error: String(err?.message || err) });
+        }
+      }
+
+      run();
+    </script>
+  </body>
+</html>

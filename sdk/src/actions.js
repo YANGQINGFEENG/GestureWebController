@@ -3,8 +3,9 @@
  *
  * 设计要点：
  * - 只做「最小可用的默认实现」，业务页可以整条替换（options.handlers）；
- * - 每个动作返回 {ok, message}，SDK 统一打到日志区，方便排查"到底执行了没"；
- * - 截屏/图片识别依赖后续里程碑的能力，这里给明确的未实现提示，不假装成功。
+ * - 每个动作返回 {ok, message, ...data}，SDK 统一打到日志区，方便排查"到底执行了没"；
+ * - 依赖外部能力（截屏、图片识别）的动作通过 `context` 注入，不在这里 import，
+ *   这样 Node 里单测 ActionRunner 时不需要 DOM / 网络。
  */
 
 export const ACTIONS = {
@@ -49,16 +50,57 @@ export const defaultHandlers = {
     return { ok: false, message: '没有可点击的元素' };
   },
 
-  screenshot() {
-    return { ok: false, message: '截屏依赖 html2canvas，排在 M3，暂未实现' };
+  /**
+   * 🖐️ 截屏。真正的抓图由 `context.capture` 提供（sdk/src/screenshot.js 的 captureViewport），
+   * 这里只负责"调用 + 汇报"，产物随 {screenshot} 一起返回给页面预览。
+   */
+  async screenshot({ capture, screenshotOptions, onScreenshot }) {
+    if (typeof capture !== 'function') {
+      return { ok: false, message: '截屏不可用：当前环境没有注入 capture（需要浏览器）' };
+    }
+    const shot = await capture(screenshotOptions);
+    onScreenshot?.(shot);
+    return {
+      ok: true,
+      message: `已截屏 ${shot.cssWidth}×${shot.cssHeight}（${shot.width}×${shot.height}px，${shot.ms}ms）`,
+      screenshot: shot,
+    };
   },
 
-  image_recognition() {
-    return { ok: false, message: '图片识别链路排在 M3，暂未实现' };
+  async image_recognition({ accept }) {
+    if (typeof accept !== 'function') {
+      return { ok: false, message: '图片识别不可用：能力已关闭，或当前环境没有注入 accept' };
+    }
+    // accept() 负责"唤起选图 → 上传识别"，SDK 主循环不等它（用户可能几十秒才选完）
+    const picked = await accept();
+    if (!picked?.ok) {
+      return { ok: false, message: picked?.message || '未完成图片识别' };
+    }
+    return {
+      ok: true,
+      message: picked.result
+        ? `识别完成：${picked.result.label}｜${picked.result.result}`
+        : '识别完成',
+      recognition: picked.result,
+    };
   },
 
-  screenshot_ai_search() {
-    return { ok: false, message: '截屏 + AI 搜索链路排在 M3，暂未实现' };
+  screenshot_ai_search({ capture, screenshotOptions, onScreenshot, recognize, source = 'screenshot' }) {
+    if (typeof capture !== 'function' || typeof recognize !== 'function') {
+      return { ok: false, message: '截屏 + AI 搜索不可用：缺少 capture / recognize' };
+    }
+    // 截屏与识别串成一条链，事件里带上 shot，页面可以先预览再等结果（M3-4）
+    return (async () => {
+      const shot = await capture(screenshotOptions);
+      onScreenshot?.(shot);
+      const result = await recognize(shot.blob, { source, shot });
+      return {
+        ok: true,
+        message: `已截屏并识别：${result.label}`,
+        screenshot: shot,
+        recognition: result,
+      };
+    })();
   },
 };
 
@@ -81,17 +123,24 @@ export class ActionRunner {
    * @param {object} [options]
    * @param {Window|HTMLElement} [options.container=window] 滚动/点击的作用域
    * @param {Object<string, Function>} [options.handlers] 覆盖默认实现
+   * @param {object} [options.context] 注入给 handler 的外部能力（capture / recognize / accept …）
    * @param {(payload:object)=>void} [options.onAction] 动作结果回调
    */
   constructor(options = {}) {
     this.container = options.container || window;
     this.handlers = { ...defaultHandlers, ...(options.handlers || {}) };
+    this.context = options.context || {};
     this.onAction = options.onAction || (() => {});
   }
 
-  /** 注册/覆盖单个动作（演示页用它接管截屏做占位） */
+  /** 注册/覆盖单个动作 */
   register(action, handler) {
     this.handlers[action] = handler;
+  }
+
+  /** 补齐/替换注入的能力（SDK 启动后再接上 recognize 之类） */
+  setContext(context = {}) {
+    this.context = { ...this.context, ...context };
   }
 
   /**
@@ -105,7 +154,13 @@ export class ActionRunner {
       result = { ok: false, message: `未注册的动作：${action}` };
     } else {
       try {
-        result = (await handler({ action, gesture, container: this.container })) || {
+        // 固定字段放后面，避免注入的 context 覆盖 action / gesture / container
+        result = (await handler({
+          ...this.context,
+          action,
+          gesture,
+          container: this.container,
+        })) || {
           ok: true,
           message: '',
         };

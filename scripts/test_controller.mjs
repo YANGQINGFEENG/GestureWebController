@@ -278,12 +278,66 @@ await test('默认动作实现：scroll_down 真的调用滚动', async () => {
   assert.match(result.message, /下翻/);
 });
 
-await test('未实现的动作如实返回失败，不假装成功', async () => {
+await test('截屏未注入 capture 时如实失败，不假装成功', async () => {
   const { ActionRunner } = await import('../sdk/src/actions.js');
   const runner = new ActionRunner();
   const result = await runner.run('screenshot', G('open_palm'));
   assert.equal(result.ok, false);
-  assert.match(result.message, /M3/);
+  assert.match(result.message, /capture/);
+});
+
+await test('截屏注入 capture 后返回产物并回调 onScreenshot', async () => {
+  const { ActionRunner } = await import('../sdk/src/actions.js');
+  const shots = [];
+  const fakeShot = {
+    blob: { size: 2048, type: 'image/jpeg' },
+    url: 'blob:fake',
+    width: 1280,
+    height: 720,
+    cssWidth: 640,
+    cssHeight: 360,
+    ms: 120,
+    at: Date.now(),
+  };
+  const runner = new ActionRunner({
+    context: {
+      capture: async () => fakeShot,
+      onScreenshot: (shot) => shots.push(shot),
+    },
+  });
+  const result = await runner.run('screenshot', G('open_palm'));
+  assert.equal(result.ok, true, result.message);
+  assert.equal(shots.length, 1, 'onScreenshot 应被调用一次');
+  assert.equal(result.screenshot, fakeShot, '产物应随 action 一起返回，供页面预览');
+  assert.match(result.message, /640×360/);
+});
+
+await test('🤞 选图失败时不抛错，只如实返回原因', async () => {
+  const { ActionRunner } = await import('../sdk/src/actions.js');
+  const runner = new ActionRunner({ context: { accept: async () => ({ ok: false, message: '未选择图片' }) } });
+  const result = await runner.run('image_recognition', G('cross_fingers'));
+  assert.equal(result.ok, false);
+  assert.match(result.message, /未选择/);
+});
+
+await test('🤟 截屏 + 识别串成一条链', async () => {
+  const { ActionRunner } = await import('../sdk/src/actions.js');
+  const calls = [];
+  const fakeShot = { blob: { size: 1, type: 'image/jpeg' }, url: 'blob:x', cssWidth: 1, cssHeight: 1, width: 1, height: 1, ms: 5, at: 1 };
+  const runner = new ActionRunner({
+    context: {
+      capture: async () => fakeShot,
+      onScreenshot: () => calls.push('shot'),
+      recognize: async (blob, opts) => {
+        calls.push(`recognize:${opts.source}`);
+        return { label: '张开手掌', result: '识别到 🖐️ 张开手掌' };
+      },
+    },
+  });
+  const result = await runner.run('screenshot_ai_search', G('love_you'));
+  assert.equal(result.ok, true, result.message);
+  assert.deepEqual(calls, ['shot', 'recognize:screenshot']);
+  assert.equal(result.recognition.label, '张开手掌');
 });
 
 await test('动作抛异常不会炸掉链路', async () => {

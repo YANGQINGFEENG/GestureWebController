@@ -15,11 +15,13 @@ import { ActionRunner } from './actions.js';
 import { FrameSource } from './capture.js';
 import { GestureDebouncer } from './debounce.js';
 import { Overlay } from './overlay.js';
+import { ScreenshotStore, captureViewport, downloadShot } from './screenshot.js';
 
 export { FrameSource } from './capture.js';
 export { GestureDebouncer } from './debounce.js';
 export { Overlay } from './overlay.js';
 export { ActionRunner, ACTIONS } from './actions.js';
+export { ScreenshotStore, captureViewport, downloadShot, loadHtml2Canvas } from './screenshot.js';
 
 const DEFAULTS = {
   endpoint: 'http://127.0.0.1:8000',
@@ -29,6 +31,10 @@ const DEFAULTS = {
   debounce: {},
   report: true,
   token: null,
+  enableImageRec: true,
+  enableScreenshotSearch: true,
+  screenshotLimit: 5,
+  screenshot: {},
 };
 
 export class GestureWebController {
@@ -46,6 +52,11 @@ export class GestureWebController {
    * @param {Window|HTMLElement} [options.container=window] 滚动与点击的作用域
    * @param {boolean} [options.report=true] 是否把触发事件上报到后端记录表
    * @param {string|Function} [options.token] 登录 token，或返回 token 的函数
+   * @param {boolean} [options.enableImageRec=true] 是否启用 🤞 手势触发图片识别
+   * @param {boolean} [options.enableScreenshotSearch=true] 是否启用 🤟 截屏 + AI 搜索
+   * @param {number} [options.screenshotLimit=5] 内存里保留最近几张截图
+   * @param {object} [options.screenshot] 截屏参数（scale / type / quality / includePreview）
+   * @param {Function} [options.pickImage] 由页面提供的选图函数，🤞 手势会调用它
    */
   constructor(options = {}) {
     const cfg = { ...DEFAULTS, ...options };
@@ -64,9 +75,34 @@ export class GestureWebController {
     this.overlay = new Overlay(cfg.canvas, { mirror: cfg.mirror });
     this._debounceOverride = { ...(cfg.debounce || {}) };
     this.debouncer = new GestureDebouncer(this._debounceOverride);
+
+    // 截图：预览要排除摄像头画布（否则截出来的网页中间嵌一个小窗），
+    // 用 data 属性标记而不是写死 id，业务页换 canvas 也不用改 SDK
+    this.screenshotOptions = { ...(cfg.screenshot || {}) };
+    if (this.screenshotOptions.includePreview !== true && this.canvas?.dataset) {
+      this.canvas.dataset.gwcIgnore = 'true';
+    }
+    this.screenshots = new ScreenshotStore({ limit: cfg.screenshotLimit });
+    this._pickImage = typeof cfg.pickImage === 'function' ? cfg.pickImage : null;
+
+    const context = {
+      capture: (opts) => this.captureScreenshot({ ...opts, register: false }),
+      screenshotOptions: this.screenshotOptions,
+      onScreenshot: (shot) => this._registerShot(shot),
+      recognize: (image, opts) => this.recognizeImage(image, opts),
+      accept: () => this.requestImagePick(),
+    };
+    if (cfg.enableImageRec === false) {
+      context.accept = null;
+    }
+    if (cfg.enableScreenshotSearch === false) {
+      context.recognize = null;
+    }
+
     this.actions = new ActionRunner({
       container: cfg.container || window,
       handlers: cfg.actions,
+      context,
       onAction: (payload) => this._emit('action', payload),
     });
 
@@ -81,6 +117,8 @@ export class GestureWebController {
       errors: 0,
       reports: 0, // 上报成功的触发次数
       reportErrors: 0,
+      screenshots: 0,
+      recognitions: 0,
       lastInferMs: 0,
       avgInferMs: 0,
       startedAt: 0,
@@ -225,7 +263,11 @@ export class GestureWebController {
         // 上报与动作并行：记录是附加能力，绝不能因为它慢而拖住翻页
         this._reportGesture(fired.gesture);
         if (this.executeActions) {
-          await this.actions.run(fired.gesture.action, fired.gesture);
+          // 故意不 await：截屏要 0.3~0.8s，🤞 选图可能等几十秒，
+          // await 会把 8fps 的识别循环整个卡死（摄像头画面还在动，但不再识别）。
+          this.actions.run(fired.gesture.action, fired.gesture).catch((err) => {
+            this._emit('error', { error: err, message: err?.message || String(err) });
+          });
         }
       }
     } catch (err) {
@@ -237,6 +279,100 @@ export class GestureWebController {
         const elapsed = performance.now() - started;
         this._scheduleNext(this._interval() - elapsed);
       }
+    }
+  }
+
+  // ---------- 截屏与图片识别（M3） ----------
+
+  /**
+   * 截一张当前可视区。
+   * @param {object} [options] 同 captureViewport，另加 register:false 表示只返回不记录
+   * @returns {Promise<object>} 截图对象（含 blob / url / width / height / ms）
+   */
+  async captureScreenshot(options = {}) {
+    const { register = true, ...rest } = options;
+    const shot = await captureViewport({ ...this.screenshotOptions, ...rest });
+    return register ? this._registerShot(shot) : shot;
+  }
+
+  /** 存进内存最近截图列表并广播 screenshot 事件 */
+  _registerShot(shot) {
+    if (!shot) return null;
+    const item = this.screenshots.add(shot);
+    this.stats.screenshots += 1;
+    this._emit('screenshot', { shot: item, count: this.screenshots.items.length });
+    return item;
+  }
+
+  /** 下载截图；不传则下载最近一张。 */
+  downloadScreenshot(shot = null) {
+    return downloadShot(shot || this.screenshots.latest);
+  }
+
+  /**
+   * 图片识别：把一张图交给后端 `/api/image/recognize`，结果自动落库。
+   * 🤞（手势触发）和 🤟（截屏后搜索）都走这一个方法。
+   *
+   * @param {Blob|File|{blob:Blob}} image
+   * @param {object} [opts]
+   * @param {'upload'|'gesture'|'screenshot'} [opts.source='upload']
+   * @returns {Promise<object>} 后端响应 {result, label, gestures, img_url, record, ...}
+   */
+  async recognizeImage(image, opts = {}) {
+    const { source = 'upload', conf = this.conf, imgsz = this.imgsz } = opts;
+    const blob = image instanceof Blob ? image : image?.blob;
+    if (!(blob instanceof Blob)) throw new Error('recognizeImage 需要 Blob / File');
+
+    const ext = blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg';
+    const form = new FormData();
+    form.append('image', blob, `${source}.${ext}`);
+    form.append('source', source);
+    if (conf != null) form.append('conf', String(conf));
+    if (imgsz != null) form.append('imgsz', String(imgsz));
+
+    const headers = {};
+    const token = this._currentToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const res = await fetch(`${this.endpoint}/api/image/recognize`, {
+      method: 'POST',
+      body: form,
+      headers,
+    });
+    if (!res.ok) {
+      let detail = '';
+      try {
+        detail = (await res.json())?.detail ?? '';
+      } catch {
+        /* 非 JSON 错误体，忽略 */
+      }
+      throw new Error(`识别接口返回 ${res.status}${detail ? `：${detail}` : ''}`);
+    }
+    const data = await res.json();
+    this.stats.recognitions += 1;
+    this._emit('recognition', { source, ...data });
+    return data;
+  }
+
+  /**
+   * 🤞 触发的选图：具体怎么选由页面决定（options.pickImage），
+   * SDK 只负责"选完就识别"。没提供时给出明确提示，不假装成功。
+   * @returns {Promise<{ok:boolean, message:string, file?:File, result?:object}>}
+   */
+  async requestImagePick() {
+    if (typeof this._pickImage !== 'function') {
+      return {
+        ok: false,
+        message: '未配置 pickImage：请在初始化时传入 pickImage()，由页面决定用文件选择还是预设图',
+      };
+    }
+    try {
+      const file = await this._pickImage();
+      if (!file) return { ok: false, message: '未选择图片' };
+      const result = await this.recognizeImage(file, { source: 'gesture' });
+      return { ok: true, message: `识别完成：${result.label || '—'}`, file, result };
+    } catch (err) {
+      return { ok: false, message: `图片识别失败：${err?.message || err}` };
     }
   }
 

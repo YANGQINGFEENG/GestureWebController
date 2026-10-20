@@ -95,6 +95,9 @@
       .article h3 { margin: 18px 0 6px; font-size: 14px; }
       .article p { margin: 8px 0; color: #c3cce0; }
       .filler { height: 900px; }
+      .shot { display: block; width: 100%; background: #0a0f1e; min-height: 60px; }
+      .shot-meta { padding: 8px 16px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+      .shot-meta:empty { display: none; }
     </style>
   </head>
   <body>
@@ -137,6 +140,15 @@
           <div class="gestures" id="gestures"></div>
         </section>
         <section class="card">
+          <h2>截屏预览（🖐️ 手势 / 手动按钮）</h2>
+          <img class="shot" id="shotPreview" alt="还没有截图" />
+          <div class="shot-meta" id="shotMeta"></div>
+          <div class="controls">
+            <button id="btnShot">手动截屏</button>
+            <button id="btnShotDownload" disabled>下载截图</button>
+          </div>
+        </section>
+        <section class="card">
           <h2>实时日志</h2>
           <div id="log"></div>
         </section>
@@ -145,6 +157,7 @@
           <div class="article" id="article">
             <h3>用手势翻页</h3>
             <p>比 ✌️ 向下翻一屏，比 ☝️ 向上翻一屏，比 👍 点击当前焦点元素。</p>
+            <p>比 🖐️ 截取当前这一屏——截图会出现在右侧「截屏预览」里，可下载。没有摄像头时点「手动截屏」也能验证。</p>
             <p>本段文字用来验证滚动动作——手势触发后，这里的滚动容器与整个页面都会动。</p>
             <div class="filler"></div>
             <h3>已经到底了</h3>
@@ -265,6 +278,16 @@
           log(`动作「${label}」${ok ? '完成' : '未执行'}：${message}`, ok ? '' : 'err');
         });
 
+        // 🖐️ 截屏：SDK 已经把图存进内存列表并用 objectURL 生成预览地址
+        ctrl.on('screenshot', ({ shot, count }) => {
+          $('shotPreview').src = shot.url;
+          $('shotMeta').textContent =
+            `视口 ${shot.cssWidth}×${shot.cssHeight} → ${shot.width}×${shot.height}px · ` +
+            `${(shot.blob.size / 1024).toFixed(0)}KB · 截取耗时 ${shot.ms}ms · 内存保留 ${count} 张`;
+          $('btnShotDownload').disabled = false;
+          log(`📸 截屏完成：${shot.width}×${shot.height}，${shot.ms}ms`, 'hit');
+        });
+
         ctrl.on('error', ({ message }) => log(`错误：${message}`, 'err'));
 
         ctrl.on('report', ({ ok, gesture, data, error }) => {
@@ -353,6 +376,31 @@
         $('modeState').textContent = '—';
         showHint('');
         log('已停止');
+      });
+
+      // ---------- 截屏（不依赖摄像头，用来单独验证 M3-2） ----------
+      $('btnShot').addEventListener('click', async () => {
+        const c = ctrl || buildController(); // 没启动识别也能截屏，方便无摄像头时验收
+        $('btnShot').disabled = true;
+        try {
+          // 截完立刻滚回原位，免得"按了截屏页面自己跳"
+          await c.captureScreenshot();
+        } catch (err) {
+          log(`截屏失败：${err.message}`, 'err');
+          showHint(`截屏失败：${err.message}`);
+        } finally {
+          $('btnShot').disabled = false;
+        }
+      });
+
+      $('btnShotDownload').addEventListener('click', () => {
+        const latest = ctrl?.screenshots.latest;
+        if (!latest) {
+          log('还没有截图可下载', 'err');
+          return;
+        }
+        ctrl.downloadScreenshot(latest);
+        log(`已下载截图 ${latest.width}×${latest.height}`);
       });
 
       $('endpoint').addEventListener('change', () => {

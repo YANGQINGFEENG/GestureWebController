@@ -11,6 +11,7 @@ import logging
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from starlette.concurrency import run_in_threadpool
 
+from backend.app.api.common import FRAME_MAX_BYTES, check_conf, check_imgsz, read_image_upload
 from backend.app.services.detector import (
     GestureDetector,
     InvalidImageError,
@@ -20,9 +21,6 @@ from backend.app.services.detector import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["gesture"])
-
-MAX_BYTES = 4 * 1024 * 1024  # 单帧上限 4MB，前端缩图后通常 <200KB
-ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/bmp"}
 
 _detector: GestureDetector | None = None
 
@@ -46,20 +44,9 @@ async def predict(
     conf: float | None = Form(None, description="置信度阈值，覆盖配置默认值"),
     imgsz: int | None = Form(None, description="推理分辨率，覆盖配置默认值"),
 ) -> dict:
-    if frame.content_type not in ALLOWED_TYPES:
-        raise HTTPException(status_code=415, detail=f"不支持的图片类型：{frame.content_type}")
-
-    data = await frame.read()
-    if not data:
-        raise HTTPException(status_code=400, detail="请求体为空")
-    if len(data) > MAX_BYTES:
-        raise HTTPException(
-            status_code=413, detail=f"图片过大（{len(data) / 1048576:.1f}MB），上限 4MB"
-        )
-    if conf is not None and not 0.0 < conf <= 1.0:
-        raise HTTPException(status_code=422, detail="conf 需在 (0, 1] 之间")
-    if imgsz is not None and not 160 <= imgsz <= 1280:
-        raise HTTPException(status_code=422, detail="imgsz 需在 160~1280 之间")
+    data = await read_image_upload(frame, max_bytes=FRAME_MAX_BYTES, field="图片")
+    check_conf(conf)
+    check_imgsz(imgsz)
 
     detector = get_detector()
     try:

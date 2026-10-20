@@ -1,53 +1,80 @@
 {
-  "_comment": "手势 → 动作 映射。class 使用 HaGRIDv2 / YOLOv10n_gestures.pt 的真实类别名，改这里即可改映射，不动推理代码。",
-  "_model": "models/YOLOv10n_gestures.pt（34 类，含 no_gesture）",
+  "_comment": "六种手势 → 动作 映射。本文件是唯一配置源：改手势、改动作、换模型类别都只改这里，不动 SDK 与推理代码。",
+  "_model": "models/YOLOv10n_gestures.pt（HaGRIDv2，34 类）",
+  "_fields": {
+    "id": "手势语义标识，SDK 事件回调里返回这个值，与模型无关",
+    "model_class": "当前权重中对应的 YOLO 类别名；换模型后若类别名不同，只改这一行",
+    "fallbacks": "主类别没检出时依次尝试的备选类别",
+    "action": "SDK 注册的动作标识：scroll_up / scroll_down / screenshot / confirm / image_recognition / screenshot_ai_search"
+  },
   "debounce": {
     "frame": 3,
     "confThreshold": 0.7,
     "cooldownMs": 800
   },
-  "mapping": {
-    "peace": {
-      "action": "scroll_down",
+  "gestures": [
+    {
+      "id": "victory",
       "emoji": "✌️",
-      "label": "下翻页",
+      "label": "V 手势",
+      "model_class": "peace",
+      "fallbacks": [],
+      "action": "scroll_down",
+      "action_label": "下翻页",
       "desc": "页面向下滚动 / 下一屏"
     },
-    "point": {
-      "action": "scroll_up",
+    {
+      "id": "point_up",
       "emoji": "☝️",
-      "label": "上翻页",
-      "desc": "页面向上滚动 / 上一屏",
-      "fallback": ["one"]
+      "label": "食指上指",
+      "model_class": "point",
+      "fallbacks": ["one"],
+      "action": "scroll_up",
+      "action_label": "上翻页",
+      "desc": "页面向上滚动 / 上一屏"
     },
-    "palm": {
-      "action": "screenshot",
+    {
+      "id": "open_palm",
       "emoji": "🖐️",
-      "label": "截屏",
-      "desc": "抓取当前网页可视区域",
-      "fallback": ["stop"]
+      "label": "张开手掌",
+      "model_class": "palm",
+      "fallbacks": ["stop"],
+      "action": "screenshot",
+      "action_label": "截屏",
+      "desc": "抓取当前网页可视区域"
     },
-    "like": {
-      "action": "confirm",
+    {
+      "id": "thumb_up",
       "emoji": "👍",
-      "label": "确定",
+      "label": "点赞",
+      "model_class": "like",
+      "fallbacks": [],
+      "action": "confirm",
+      "action_label": "确定",
       "desc": "模拟点击当前焦点元素"
     },
-    "xsign": {
-      "action": "image_recognition",
+    {
+      "id": "cross_fingers",
       "emoji": "🤞",
-      "label": "触发图片识别",
+      "label": "交叉手指",
+      "model_class": "xsign",
+      "fallbacks": [],
+      "action": "image_recognition",
+      "action_label": "触发图片识别",
       "desc": "唤起图片上传并调用后端识别"
     },
-    "rock": {
-      "action": "screenshot_ai_search",
+    {
+      "id": "love_you",
       "emoji": "🤟",
-      "label": "截屏 + AI 搜索",
+      "label": "爱与和平",
+      "model_class": "rock",
+      "model_class_target": "love_you",
+      "fallbacks": [],
+      "action": "screenshot_ai_search",
+      "action_label": "截屏 + AI 搜索",
       "desc": "截屏后自动上传识别并回显结果",
-      "note": "模型无 🤟 类，暂用 rock(🤘) 近似映射；M4 阶段自采样本微调后改为 love_you"
+      "note": "预训练权重无 love_you 类，暂用姿态最接近的 rock(🤘)。微调补类后把 model_class 改成 love_you 即可，其余不动。"
     }
-  },
-  "ignored_classes": [
-    "no_gesture"
-  ]
+  ],
+  "ignored_classes": ["no_gesture"]
 }

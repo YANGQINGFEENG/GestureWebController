@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>嵌入示例 · 把这套手势操控装进任意网页</title>
+    <style>
+      :root {
+        --bg: #0b1020;
+        --panel: #131a2e;
+        --panel-2: #1a2340;
+        --line: #26304d;
+        --text: #e6e9f2;
+        --muted: #93a0bd;
+        --accent: #4f8cff;
+        --ok: #22c55e;
+        --warn: #f59e0b;
+        --err: #ef4444;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(1000px 500px at 15% -10%, #16203c 0%, var(--bg) 60%);
+        color: var(--text);
+        font: 15px/1.75 system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+      }
+      a { color: var(--accent); text-decoration: none; }
+
+      /* 顶部说明条：强调"这是一张普通网页" */
+      .notice {
+        display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+        padding: 10px 24px; font-size: 13px;
+        background: #16203c; border-bottom: 1px solid var(--line); color: var(--muted);
+      }
+      .notice b { color: var(--text); }
+      .notice .spacer { flex: 1; }
+
+      .wrap { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 28px; max-width: 1120px; margin: 0 auto; padding: 28px 24px 80px; }
+      @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
+
+      article h1 { font-size: 26px; line-height: 1.35; margin: 0 0 6px; }
+      article .meta { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+      article h2 { font-size: 17px; margin: 28px 0 8px; color: #cfd8ee; }
+      article p { margin: 10px 0; color: #c3cce0; }
+      article ul { color: #c3cce0; padding-left: 22px; }
+      article li { margin: 4px 0; }
+      .quote {
+        border-left: 3px solid var(--accent); padding: 8px 16px; margin: 18px 0;
+        background: #101830; color: #cfd8ee; border-radius: 0 8px 8px 0;
+      }
+
+      /* 右侧手势面板：模拟"宿主页面自己的侧栏" */
+      .side { position: sticky; top: 20px; align-self: start; display: grid; gap: 14px; }
+      .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+      .card h3 { font-size: 12px; margin: 0; padding: 10px 14px; color: var(--muted); border-bottom: 1px solid var(--line); font-weight: 600; letter-spacing: 0.4px; }
+      .card .body { padding: 12px 14px; }
+      #cam { display: block; width: 100%; background: #0a0f1e; border-radius: 8px; }
+      .status { font-size: 12px; color: var(--muted); margin-top: 10px; min-height: 34px; }
+      .status.ok { color: #b7f7c9; }
+      .status.err { color: #ffb4b4; }
+      button {
+        font: inherit; font-size: 13px; color: var(--text); background: var(--panel-2);
+        border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; width: 100%;
+      }
+      button:hover:not(:disabled) { border-color: #3d4a72; background: #202b4d; }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #06122b; font-weight: 600; }
+      .hint { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+
+      #log { font-size: 12px; color: var(--muted); max-height: 150px; overflow: auto; font-variant-numeric: tabular-nums; }
+      #log div { padding: 3px 0; border-bottom: 1px dashed #1d2742; }
+      #log b { color: #ffe08a; font-weight: 500; }
+
+      /* 代码卡片 */
+      .code-card { margin-top: 32px; }
+      .code-card pre {
+        margin: 0; padding: 16px 18px; overflow: auto;
+        background: #0a0f1e; border-radius: 0 0 12px 12px;
+        font: 12.5px/1.7 ui-monospace, "Cascadia Code", Consolas, monospace;
+        color: #d6def5;
+      }
+      .code-card pre .c { color: #6f7f9f; }
+      .code-card pre .k { color: #c792ea; }
+      .code-card pre .s { color: #a5e0a5; }
+      .tag {
+        font-size: 11px; padding: 2px 8px; border-radius: 999px;
+        border: 1px solid #1f5f36; color: #b7f7c9; background: #0f2a1c;
+      }
+      .filler { height: 720px; display: grid; place-items: center; color: var(--muted); font-size: 13px; border: 1px dashed var(--line); border-radius: 12px; margin-top: 24px; }
+    </style>
+  </head>
+  <body>
+    <div class="notice">
+      <span>这是一张<b>普通网页</b>：除了右侧那 9 行接入代码，它没有引用本项目任何东西。</span>
+      <span class="spacer"></span>
+      <a href="index.html">← 完整演示页</a>
+      <a href="profile.html">个人中心</a>
+      <a href="admin.html">后台</a>
+    </div>
+
+    <div class="wrap">
+      <article>
+        <h1>为什么把手势做成一门「可嵌入」的能力，而不是一个独立 App</h1>
+        <div class="meta">嵌入式示例页 · 手势翻页 / 截屏在这篇文章上直接生效</div>
+
+        <p>
+          很多手势项目最后都做成了一个孤立的演示页：打开它、比手势、看它动，
+          然后就没有然后了。真正要落地，手势必须能被塞进<b>别人已经做好的页面</b>里——
+          阅读器、文档站、课件、后台系统。
+        </p>
+
+        <h2>这篇页面的特别之处</h2>
+        <p>
+          你现在看的这篇文章，是一个独立实现的长页。它并不知道"手势"这回事，
+          唯一的改动是引入了 9 行代码：
+        </p>
+        <div class="quote">
+          引入 SDK → 给它一张 <code>canvas</code> → <code>await start()</code>。
+          翻页、截屏、点击，全部由 SDK 的默认动作接管。
+        </div>
+        <ul>
+          <li>比 ✌️ 往下翻一屏，比 ☝️ 往上翻一屏 —— 试试现在能不能翻动这篇文章。</li>
+          <li>比 🖐️ 抓取当前视口，截图会出现在右侧。</li>
+          <li>比 👍 点击当前焦点元素。</li>
+          <li>不想动摄像头？点右侧「用示例图」跑一遍，链路一样走得通。</li>
+        </ul>
+
+        <h2>为什么不直接做一个浏览器插件</h2>
+        <p>
+          插件权限大、能作用于任意站点，但安装门槛高、审核周期长，而且拿不到页面的语义结构，
+          只能靠模拟事件"盲点"。SDK 方案反过来：宿主页面主动接入，能精确控制作用域
+          （<code>container</code> 指定滚动容器）、能拿到业务事件（<code>gestureweb:action</code>），
+          也不需要任何安装。
+        </p>
+
+        <h2>边界：它只操控当前标签页</h2>
+        <p>
+          这是刻意的取舍。截屏走 <code>html2canvas</code> 重绘 DOM，而不是
+          <code>getDisplayMedia</code>；后者能截到桌面和别的窗口，需要二次授权，
+          对"手势操控网页"这个场景来说是过度授权。SDK 的能力边界就是浏览器标签页之内。
+        </p>
+        <p>
+          识别在服务端做（YOLOv10n + HaGRIDv2 34 类），前端只负责抽帧、叠框、防抖。
+          这样换模型、调阈值都不用改业务代码，一处升级处处生效。
+        </p>
+
+        <h2>性能账</h2>
+        <p>
+          抽帧固定 640px、8fps，单帧推理 28~58ms（CPU）；预览 60fps 独立渲染，不与识别抢主线程。
+          防抖是 3 帧一致 + 800ms 冷却 + 容忍 1 帧丢失，所以抬手、晃动不会连续触发。
+        </p>
+
+        <h2>这段文字存在的意义</h2>
+        <p>
+          它足够长，能让你验证"翻页真的翻了"。如果它翻不动，那这套方案就没有意义——
+          所以这段是用来被翻的，不是用来读的。你可以用 ✌️ 一直翻到底，
+          看到页面底部的验收提示。
+        </p>
+
+        <div class="filler">
+          这里是长文填充区：用 ✌️ 连翻几次，应该能看到这一块在你眼前滚过去。
+        </div>
+
+        <section class="card code-card">
+          <h3>
+            完整接入代码（9 行）
+            <span class="tag">可复制到任何页面</span>
+          </h3>
+          <pre><code><span class="c">&lt;!-- 1. 准备一张画布，SDK 会往上面叠预览和框 --&gt;</span>
+&lt;canvas id="cam" width="320" height="240"&gt;&lt;/canvas&gt;
+
+&lt;script type="module"&gt;
+<span class="k">import</span> { GestureWebController } <span class="k">from</span> <span class="s">'./sdk/src/index.js'</span>;
+
+<span class="k">const</span> ctrl = <span class="k">new</span> GestureWebController({
+  canvas: document.querySelector(<span class="s">'#cam'</span>),
+  endpoint: <span class="s">'http://127.0.0.1:8000'</span>,
+  fps: 8,
+});
+
+<span class="k">await</span> ctrl.start();                        <span class="c">// 开摄像头 + 开始识别</span>
+window.addEventListener(<span class="s">'pagehide'</span>, () =&gt; ctrl.stop());
+&lt;/script&gt;</code></pre>
+        </section>
+
+        <p style="margin-top: 22px; font-size: 13px; color: var(--muted)">
+          这页为了让你手动点，把 <code>start()</code> 挂在了按钮上；想进页面就自动跑，直接调用即可。
+          想接管动作？传 <code>actions: { screenshot: () =&gt; {...} }</code> 覆盖默认实现；
+          想监听事件？<code>ctrl.on('gestureTrigger', cb)</code> 或监听
+          <code>document</code> 上的 <code>gestureweb:action</code>，不必持有 SDK 实例。
+        </p>
+      </article>
+
+      <aside class="side">
+        <section class="card">
+          <h3>手势操控（宿主页侧栏）</h3>
+          <div class="body">
+            <!-- data-gwc-ignore：截屏时排除这块，避免"截图里再套一个摄像头画面" -->
+            <canvas id="cam" width="320" height="240" data-gwc-ignore="true"></canvas>
+            <div class="status" id="status">准备中…</div>
+            <button class="primary" id="btnStart">开启摄像头</button>
+            <button id="btnImages" style="margin-top: 8px">用示例图（无摄像头）</button>
+            <button id="btnStop" style="margin-top: 8px" disabled>停止</button>
+            <div class="hint">
+              示例图会依次送 4 张手势图给模型，用来在没有摄像头的机器上验证链路。
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3>触发记录</h3>
+          <div class="body"><div id="log"><span class="hint">还没有触发</span></div></div>
+        </section>
+      </aside>
+    </div>
+
+    <script type="module">
+      // ===== 以下就是"接入所需"的全部代码（第 1 段：import 与实例化）=====
+      import { GestureWebController, FrameSource } from '../../sdk/src/index.js';
+
+      const $ = (id) => document.getElementById(id);
+      const statusEl = $('status');
+      const logEl = $('log');
+
+      const ctrl = new GestureWebController({
+        canvas: $('cam'),
+        endpoint: 'http://127.0.0.1:8000',
+        fps: 8,
+      });
+      // ===== 接入代码结束（后面是这页自己的按钮与日志，业务页可以完全不要）=====
+
+      function setStatus(text, kind = '') {
+        statusEl.textContent = text;
+        statusEl.className = `status ${kind}`;
+      }
+
+      function log(text, highlight = false) {
+        if (logEl.querySelector('.hint')) logEl.textContent = '';
+        const row = document.createElement('div');
+        const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+        row.innerHTML = `${time} ${highlight ? `<b>${text}</b>` : text}`;
+        logEl.prepend(row);
+        while (logEl.children.length > 30) logEl.lastElementChild.remove();
+      }
+
+      ctrl.on('started', ({ source, label }) => {
+        setStatus(`运行中：${label}`, 'ok');
+        log(`已启动（${source}）`);
+      });
+      ctrl.on('gestureTrigger', ({ gesture }) => {
+        log(`触发 ${gesture.emoji} ${gesture.label}（${(gesture.conf * 100).toFixed(0)}%）`, true);
+      });
+      ctrl.on('action', ({ label, ok, message }) => {
+        log(`动作「${label}」${ok ? '完成' : '未执行'}：${message}`);
+      });
+      ctrl.on('error', ({ message }) => {
+        log(`错误：${message}`);
+      });
+
+      function busy(on) {
+        $('btnStart').disabled = on;
+        $('btnImages').disabled = on;
+        $('btnStop').disabled = !on;
+      }
+
+      $('btnStart').addEventListener('click', async () => {
+        busy(true);
+        setStatus('正在请求摄像头…');
+        try {
+          await ctrl.start(); // 不传 source 就是开摄像头
+        } catch (err) {
+          busy(false);
+          setStatus(`摄像头不可用：${err.message}。这台机器没有摄像头就点下面的「用示例图」。`, 'err');
+        }
+      });
+
+      $('btnImages').addEventListener('click', async () => {
+        busy(true);
+        setStatus('正在加载示例图…');
+        try {
+          // 取 4 张单手势图，转成 File 后交给 FrameSource，和真实上传的路径完全一致
+          // 这四张是在本机实测过能触发的手势图，顺序按"演示效果"排：
+          // 🖐️ 截屏（立刻见效）→ 🤟 截屏 + AI 搜索 → ☝️ 上翻页 → 🖐️ 截屏
+          // 注意：SDK 抽帧时会按 cover 缩放，同一张图直接看和经 SDK 处理后的识别结果可能不同，
+          // 所以这几张是"以 SDK 这条路径实测能触发"为准挑的，不是拿原图 curl 试出来的。
+          const names = ['r1c1.jpg', 'r4c6.jpg', 'r1c2.jpg', 'r2c6.jpg'];
+          const files = await Promise.all(
+            names.map(async (name) => {
+              const res = await fetch(`../../data/testshots/single/${name}`);
+              if (!res.ok) throw new Error(`${name} 读取失败（HTTP ${res.status}）`);
+              return new File([await res.blob()], name, { type: 'image/jpeg' });
+            }),
+          );
+          await ctrl.start({ source: await FrameSource.images(files, { holdMs: 1500 }) });
+        } catch (err) {
+          busy(false);
+          setStatus(`示例图启动失败：${err.message}`, 'err');
+        }
+      });
+
+      $('btnStop').addEventListener('click', () => {
+        ctrl.stop();
+        busy(false);
+        setStatus('已停止');
+        log('已停止');
+      });
+
+      window.addEventListener('pagehide', () => ctrl.stop());
+
+      // 供自动化自检读取状态（业务页不需要这段）
+      window.__gwcEmbed = {
+        ctrl,
+        snapshot: () => ({
+          status: statusEl.textContent,
+          running: ctrl.running,
+          logs: [...logEl.children].map((n) => n.textContent),
+          stats: { ...ctrl.stats },
+        }),
+      };
+    </script>
+  </body>
+</html>

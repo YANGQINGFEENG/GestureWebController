@@ -31,16 +31,18 @@ backend/app/
   services/    业务层：detector(YOLO推理) / storage(图片落盘) / describe(结果文案) / llm(问答双 provider)
   db/           数据层：models(四张表) / session / repository(全部查询) / seed
   core/         配置加载、密码哈希与 JWT
-frontend/pages/ 页面：index(演示主页) / profile(个人中心) / selfcheck(截屏自检) / admin(后台管理)（M4 再加 embed-demo）
+frontend/pages/ 页面：index(演示主页) / profile(个人中心) / selfcheck(截屏自检) / admin(后台管理) / embed-demo(嵌入示例)
 frontend/assets/ auth.js（登录态与 api 封装）
 sdk/src/        可复用 SDK（capture / overlay / debounce / actions / screenshot / index）
 sdk/vendor/     html2canvas.min.js（随 SDK 分发，离线可用，勿手改）
 sdk/dist/       构建产物
 config/         gesture_map.json（手势映射）、model.yaml（模型参数）、app.yaml（数据库/鉴权/记录/上传）
 models/         权重目录（*.pt 不入库）
-scripts/        download_model / check_gesture_map / predict_image / stress_test / start_dev /
-                log_progress / test_sdk / test_controller / test_api_m2 / test_api_m3 / test_api_m4 /
-                check_screenshot / check_admin / hooks
+start.bat / start.sh  一键入口（薄壳，只找解释器；逻辑在 scripts/bootstrap.py）
+scripts/        bootstrap(自举：建 venv/装依赖/下权重/自检/起服务) / download_model / check_gesture_map /
+                predict_image / stress_test / start_dev / log_progress /
+                test_sdk / test_controller / test_api_m2 / test_api_m3 / test_api_m4 /
+                check_screenshot / check_admin / check_embed / hooks
 data/           uploads、screenshots、app.db、.jwt_secret（均不入库；/media/uploads 只暴露 uploads）
 docs/           需求、计划、进度、决策、日志、交接
 ```
@@ -102,10 +104,12 @@ python scripts/check_gesture_map.py  # 配置里的类别名与权重是否匹�
 .venv/Scripts/python -m http.server 8080 --bind 127.0.0.1 --directory .
 node scripts/check_screenshot.mjs    # 无头 Chrome 实测截屏（5 断言：尺寸/非空白/亮度/耗时/成功）
 node scripts/check_admin.mjs         # 无头 Chrome 实测后台页（17 断言；可加 --screenshot 存图）
+node scripts/check_embed.mjs         # 无头 Chrome 实测嵌入示例页（10 断言，走示例图）
 ```
 
 改了截屏相关代码（`sdk/src/screenshot.js`、`actions.js` 的 screenshot 分支、`selfcheck.html`）**必须**跑 `check_screenshot.mjs`；
-改了后台页面或 admin 接口**必须**跑 `check_admin.mjs`。
+改了后台页面或 admin 接口**必须**跑 `check_admin.mjs`；
+改了 embed-demo 或 SDK 的公开 API **必须**跑 `check_embed.mjs`——它验的是"脱离演示页之后，9 行接入还成不成立"。
 这两件事（截屏是不是空白、表格渲染对不对）代码审查看不出来，只有真渲染一次才知道——
 M4-1 的分布条塌陷和缩略图假通过都是靠这条才发现。
 

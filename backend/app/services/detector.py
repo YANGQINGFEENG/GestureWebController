@@ -139,11 +139,13 @@ class GestureDetector:
         infer_ms = (time.perf_counter() - started) * 1000
 
         best: dict[str, dict[str, Any]] = {}
+        raw_count = 0  # 原始检测框数（含未映射 / 低于门槛），用于向用户解释"为什么没结果"
         boxes = getattr(results[0], "boxes", None)
         if boxes is not None and len(boxes) > 0:
             classes = boxes.cls.tolist()
             confidences = boxes.conf.tolist()
             coords = boxes.xyxy.tolist()
+            raw_count = len(classes)
             for cls_id, score, xyxy in zip(classes, confidences, coords):
                 model_class = self._names.get(int(cls_id), str(int(cls_id)))
                 gesture = self.gesture_map.match(model_class)
@@ -170,6 +172,7 @@ class GestureDetector:
         gestures = sorted(best.values(), key=lambda g: g["conf"], reverse=True)
         return {
             "gestures": gestures,
+            "raw_count": raw_count,
             "infer_ms": round(infer_ms, 1),
             "image_size": [width, height],
         }

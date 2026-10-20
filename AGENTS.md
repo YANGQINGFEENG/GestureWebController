@@ -26,19 +26,21 @@
 
 ```
 backend/app/
-  api/          路由层：predict / auth / records / admin / system / deps(依赖注入)
-  services/    业务层：detector(YOLO推理)（M3 加 image_rec / ai_chat）
+  api/          路由层：predict / recognize / chat / auth / records / admin / system / deps(依赖注入) / common(上传校验)
+  services/    业务层：detector(YOLO推理) / storage(图片落盘) / describe(结果文案) / llm(问答双 provider)
   db/           数据层：models(四张表) / session / repository(全部查询) / seed
   core/         配置加载、密码哈希与 JWT
-frontend/pages/ 页面：index(演示主页) / profile(个人中心)（M3/M4 加 chat / admin / embed-demo）
+frontend/pages/ 页面：index(演示主页) / profile(个人中心) / selfcheck(截屏自检)（M4 加 admin / embed-demo）
 frontend/assets/ auth.js（登录态与 api 封装）
-sdk/src/        可复用 SDK（capture / overlay / debounce / actions / index）
+sdk/src/        可复用 SDK（capture / overlay / debounce / actions / screenshot / index）
+sdk/vendor/     html2canvas.min.js（随 SDK 分发，离线可用，勿手改）
 sdk/dist/       构建产物
-config/         gesture_map.json（手势映射）、model.yaml（模型参数）、app.yaml（数据库/鉴权/记录）
+config/         gesture_map.json（手势映射）、model.yaml（模型参数）、app.yaml（数据库/鉴权/记录/上传）
 models/         权重目录（*.pt 不入库）
 scripts/        download_model / check_gesture_map / predict_image / stress_test / start_dev /
-                log_progress / test_sdk / test_controller / test_api_m2 / hooks
-data/           uploads、screenshots、app.db、.jwt_secret（均不入库）
+                log_progress / test_sdk / test_controller / test_api_m2 / test_api_m3 /
+                check_screenshot / hooks
+data/           uploads、screenshots、app.db、.jwt_secret（均不入库；/media/uploads 只暴露 uploads）
 docs/           需求、计划、进度、决策、日志、交接
 ```
 
@@ -88,11 +90,19 @@ git add -A && git commit -m "feat: xxx"
 ### 改完代码请跑这四条（都不需要摄像头 / 浏览器）
 
 ```bash
-node scripts/test_sdk.mjs           # 防抖纯逻辑（9 用例）
-node scripts/test_controller.mjs    # SDK 主循环集成 + 上报（12 用例，DOM 桩）
-python scripts/test_api_m2.py       # 接口端到端（34 用例，需后端已启动）
-python scripts/check_gesture_map.py # 配置里的类别名与权重是否匹配
+node scripts/test_sdk.mjs            # 防抖纯逻辑（9 用例）
+node scripts/test_controller.mjs     # SDK 主循环 + 动作 + 上报（15 用例，DOM 桩）
+python scripts/test_api_m2.py        # 账号与记录接口（34 用例，需后端已启动）
+python scripts/test_api_m3.py        # 图片识别 + 问答 SSE + 落盘回看（40 用例，需后端已启动）
+python scripts/check_gesture_map.py  # 配置里的类别名与权重是否匹配
+
+# 需要浏览器（截屏只在浏览器里成立）：先起静态服务，再跑自检
+.venv/Scripts/python -m http.server 8080 --bind 127.0.0.1 --directory .
+node scripts/check_screenshot.mjs    # 无头 Chrome 实测截屏（5 断言：尺寸/非空白/亮度/耗时/成功）
 ```
+
+改了截屏相关代码（`sdk/src/screenshot.js`、`actions.js` 的 screenshot 分支、`selfcheck.html`）**必须**跑最后一条——
+截屏是不是空白，代码审查看不出来，只有真渲染一次才知道。
 
 前端没有构建步骤、没有 node_modules 依赖，测试用 Node 内置模块直接跑——**不要为了测试引入打包工具**。
 

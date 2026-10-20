@@ -95,6 +95,25 @@
       .article h3 { margin: 18px 0 6px; font-size: 14px; }
       .article p { margin: 8px 0; color: #c3cce0; }
       .filler { height: 900px; }
+      .shot { display: block; width: 100%; background: #0a0f1e; min-height: 60px; }
+      .shot-meta { padding: 8px 16px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+      .shot-meta:empty { display: none; }
+      .recog { padding: 12px 16px; font-size: 13px; color: #c3cce0; white-space: pre-wrap; }
+      .recog:empty { display: none; }
+      .recog b { color: #ffe08a; }
+      .chat { max-height: 280px; overflow-y: auto; padding: 12px 16px; display: grid; gap: 8px; }
+      .chat .msg { font-size: 13px; line-height: 1.6; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap; max-width: 92%; }
+      .chat .me { background: #1c2a4d; color: #dbe6ff; justify-self: end; }
+      .chat .ai { background: #101728; border: 1px solid var(--line); color: #c3cce0; justify-self: start; }
+      #chatInput {
+        flex: 1; min-width: 150px; font: inherit; font-size: 13px; color: var(--text);
+        background: #0d1425; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px;
+      }
+      button.pulse { animation: pulse 1.1s ease-in-out 3; border-color: var(--accent); }
+      @keyframes pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(79, 140, 255, 0); }
+        50% { box-shadow: 0 0 0 6px rgba(79, 140, 255, 0.35); }
+      }
     </style>
   </head>
   <body>
@@ -137,14 +156,48 @@
           <div class="gestures" id="gestures"></div>
         </section>
         <section class="card">
+          <h2>截屏预览（🖐️ 手势 / 手动按钮）</h2>
+          <img class="shot" id="shotPreview" alt="还没有截图" />
+          <div class="shot-meta" id="shotMeta"></div>
+          <div class="controls">
+            <button id="btnShot">手动截屏</button>
+            <button id="btnShotDownload" disabled>下载截图</button>
+          </div>
+        </section>
+        <section class="card">
+          <h2>图片识别（🤞 手势 / 手动上传 / 截屏）</h2>
+          <img class="shot" id="recogImage" alt="还没有识别图" />
+          <div class="shot-meta" id="recogMeta"></div>
+          <div class="recog" id="recogResult"></div>
+          <div class="controls">
+            <button id="btnPickImage">选图识别</button>
+            <button id="btnSample">用示例图</button>
+            <button id="btnShotRecognize">截屏并识别</button>
+            <input type="file" id="fileShot" accept="image/*" hidden />
+          </div>
+        </section>
+        <section class="card">
           <h2>实时日志</h2>
           <div id="log"></div>
+        </section>
+        <section class="card">
+          <h2>AI 问答（可带上识别结果）</h2>
+          <div class="chat" id="chatLog"></div>
+          <div class="controls">
+            <input type="text" id="chatInput" placeholder="问问手势、识别或记录相关的问题…" />
+            <button class="primary" id="btnChat">发送</button>
+            <button id="btnUseRecog">带上识别结果</button>
+          </div>
+          <div class="shot-meta" id="chatMeta"></div>
         </section>
         <section class="card">
           <h2>动作验证区（下翻页应能看到本段滚动）</h2>
           <div class="article" id="article">
             <h3>用手势翻页</h3>
             <p>比 ✌️ 向下翻一屏，比 ☝️ 向上翻一屏，比 👍 点击当前焦点元素。</p>
+            <p>比 🖐️ 截取当前这一屏——截图会出现在右侧「截屏预览」里，可下载。没有摄像头时点「手动截屏」也能验证。</p>
+            <p>比 🤞 触发图片识别：页面会高亮「选图识别」，点一下选图即可（浏览器要求用户点击才能打开文件选择）。
+              比 🤟 则直接截屏并识别，结果出现在「图片识别」卡片里。</p>
             <p>本段文字用来验证滚动动作——手势触发后，这里的滚动容器与整个页面都会动。</p>
             <div class="filler"></div>
             <h3>已经到底了</h3>
@@ -164,6 +217,12 @@
 
       let ctrl = null;
       let currentKind = '';
+      let pendingPick = null; // 🤞 触发时挂起的选图 Promise
+      let lastRecog = null; // 最近一次识别结果，用于"带入问答"
+      let chatContext = ''; // 当前问答附带的识别结果文本
+
+      const apiBase = () => $('endpoint').value.replace(/\/+$/, '');
+      const absUrl = (u) => (!u ? '' : u.startsWith('http') ? u : `${apiBase()}${u}`);
 
       // ---------- 日志 ----------
       function log(message, kind = '') {
@@ -217,6 +276,7 @@
         }
       }
       probeServer();
+      probeChat();
 
       // ---------- 账号状态 ----------
       function refreshAccount() {
@@ -243,6 +303,9 @@
           fps: 8,
           mirror: currentKind === 'camera',
           token: () => getToken(),
+          // 🤞 触发时由页面决定怎么选图：浏览器要求"用户点击"才能打开文件选择，
+          // 所以这里只高亮按钮并提示，用户点一下就会走到同一个 input
+          pickImage: () => askForImage(),
         });
 
         ctrl.on('frame', ({ gestures, inferMs, streak, triggered }) => {
@@ -265,6 +328,19 @@
           log(`动作「${label}」${ok ? '完成' : '未执行'}：${message}`, ok ? '' : 'err');
         });
 
+        // 🖐️ 截屏：SDK 已经把图存进内存列表并用 objectURL 生成预览地址
+        ctrl.on('screenshot', ({ shot, count }) => {
+          $('shotPreview').src = shot.url;
+          $('shotMeta').textContent =
+            `视口 ${shot.cssWidth}×${shot.cssHeight} → ${shot.width}×${shot.height}px · ` +
+            `${(shot.blob.size / 1024).toFixed(0)}KB · 截取耗时 ${shot.ms}ms · 内存保留 ${count} 张`;
+          $('btnShotDownload').disabled = false;
+          log(`📸 截屏完成：${shot.width}×${shot.height}，${shot.ms}ms`, 'hit');
+        });
+
+        // 🤞 / 🤟 / 手动上传 都会走到这里
+        ctrl.on('recognition', (data) => renderRecognition(data));
+
         ctrl.on('error', ({ message }) => log(`错误：${message}`, 'err'));
 
         ctrl.on('report', ({ ok, gesture, data, error }) => {
@@ -280,6 +356,8 @@
           log(`防抖参数已同步：${debounce.frame} 帧 / 阈值 ${debounce.confThreshold} / 冷却 ${debounce.cooldownMs}ms`);
         });
 
+        // 挂在 window 上只为方便调试与自动化自检（控制台里 __gwcDemo 就是当前控制器）
+        window.__gwcDemo = ctrl;
         return ctrl;
       }
 
@@ -355,9 +433,224 @@
         log('已停止');
       });
 
+      // ---------- 图片识别（M3-3 🤞 / M3-4 🤟） ----------
+      function renderRecognition(data) {
+        if (!data) return;
+        lastRecog = data;
+        const img = $('recogImage');
+        img.hidden = !data.img_url;
+        img.src = absUrl(data.img_url) || '';
+        const t = data.timings || {};
+        $('recogMeta').textContent =
+          `${data.label} · 来源 ${data.source} · 识别 ${t.infer_ms ?? '—'}ms · 总 ${t.total_ms ?? '—'}ms · ` +
+          (data.saved ? `已入库 #${data.record?.record_id}` : `未入库（${data.reason || '未知'}）`);
+        $('recogResult').textContent = data.result || '';
+        log(`🔎 识别结果：${data.label}｜${data.result}`, 'hit');
+      }
+
+      /** 🤞 手势触发：高亮按钮并等用户点（浏览器要求用户点击才能打开文件选择，不能凭空弹出） */
+      function askForImage() {
+        return new Promise((resolve) => {
+          pendingPick = resolve;
+          const btn = $('btnPickImage');
+          btn.classList.remove('pulse');
+          void btn.offsetWidth; // 强制回流，让动画能重复播放
+          btn.classList.add('pulse');
+          showHint('🤞 已触发图片识别：点一下「选图识别」选图片（浏览器要求用户点击才能打开文件选择）。');
+          log('🤞 触发图片识别，等待选择图片…', 'fire');
+          if (navigator.userActivation?.isActive) $('fileShot').click();
+          setTimeout(() => {
+            if (pendingPick === resolve) {
+              pendingPick = null;
+              btn.classList.remove('pulse');
+              resolve(null); // 超时：SDK 会如实报"未选择图片"
+            }
+          }, 60000);
+        });
+      }
+
+      $('btnPickImage').addEventListener('click', () => $('fileShot').click());
+
+      $('fileShot').addEventListener('change', (e) => {
+        const file = e.target.files?.[0] || null;
+        e.target.value = '';
+        $('btnPickImage').classList.remove('pulse');
+        showHint('');
+        if (pendingPick) {
+          // 🤞 链路：把文件交回 SDK，由 requestImagePick 上传并识别
+          const resolve = pendingPick;
+          pendingPick = null;
+          resolve(file);
+        } else if (file) {
+          const c = ctrl || buildController();
+          c.recognizeImage(file, { source: 'upload' }).catch((err) =>
+            log(`识别失败：${err.message}`, 'err'),
+          );
+        }
+      });
+
+      // 示例图：没有摄像头也没有手势照片时，用它验证"识别 → 落盘 → 入库"整条链路
+      // （路径指向仓库 data/ 目录，仅演示页可访问；正式部署应换成自己的素材接口）
+      $('btnSample').addEventListener('click', async () => {
+        const c = ctrl || buildController();
+        try {
+          const res = await fetch('../../data/testshots/single/r1c1.jpg');
+          if (!res.ok) throw new Error(`示例图读取失败 HTTP ${res.status}`);
+          await c.recognizeImage(await res.blob(), { source: 'upload' });
+        } catch (err) {
+          log(`示例图识别失败：${err.message}`, 'err');
+          showHint(String(err.message));
+        }
+      });
+
+      // 🤟 截屏 + AI 搜索的手动等价物：截屏 → 上传 → 识别，并报告端到端耗时
+      $('btnShotRecognize').addEventListener('click', async () => {
+        const c = ctrl || buildController();
+        const t0 = performance.now();
+        try {
+          const shot = await c.captureScreenshot();
+          log('📸 已截屏，开始识别…');
+          const res = await c.recognizeImage(shot.blob, { source: 'screenshot' });
+          log(`🔎 截屏识别全链路 ${Math.round(performance.now() - t0)}ms：${res.label}`, 'hit');
+        } catch (err) {
+          log(`截屏识别失败：${err.message}`, 'err');
+          showHint(String(err.message));
+        }
+      });
+
+      // ---------- AI 问答（M3-5，SSE 流式） ----------
+      function appendChat(role, text) {
+        const el = document.createElement('div');
+        el.className = `msg ${role}`;
+        el.textContent = text;
+        $('chatLog').appendChild(el);
+        $('chatLog').scrollTop = $('chatLog').scrollHeight;
+        return el;
+      }
+
+      async function probeChat() {
+        try {
+          const res = await fetch(`${apiBase()}/api/chat/info`, { signal: AbortSignal.timeout(4000) });
+          const data = await res.json();
+          const info = data.llm || {};
+          $('chatMeta').textContent =
+            `模型：${info.provider} / ${info.model}${info.note ? ` · ${info.note}` : ''}`;
+        } catch {
+          /* 后端没起时由发送按钮给出更明确的错误 */
+        }
+      }
+
+      async function sendChat() {
+        const question = $('chatInput').value.trim();
+        if (!question) return;
+
+        $('chatInput').value = '';
+        $('btnChat').disabled = true;
+        appendChat('me', question);
+        const bubble = appendChat('ai', '…');
+        let answer = '';
+        let meta = '';
+
+        try {
+          const headers = { 'Content-Type': 'application/json' };
+          const token = getToken();
+          if (token) headers.Authorization = `Bearer ${token}`;
+          const res = await fetch(`${apiBase()}/api/chat`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ question, context: chatContext }),
+          });
+          if (!res.ok || !res.body) throw new Error(`问答接口返回 ${res.status}`);
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const blocks = buffer.split('\n\n');
+            buffer = blocks.pop() || '';
+            for (const block of blocks) {
+              const line = block.trim();
+              if (!line.startsWith('data:')) continue;
+              let evt;
+              try {
+                evt = JSON.parse(line.slice(5).trim());
+              } catch {
+                continue;
+              }
+              if (evt.type === 'start') {
+                meta = `${evt.provider} / ${evt.model}`;
+                if (evt.note) log(`问答：${evt.note}`);
+              } else if (evt.type === 'delta') {
+                answer += evt.text;
+                bubble.textContent = answer;
+                $('chatLog').scrollTop = $('chatLog').scrollHeight;
+              } else if (evt.type === 'error') {
+                bubble.textContent = `${answer}\n[出错] ${evt.message}`;
+                log(`问答出错：${evt.message}`, 'err');
+              } else if (evt.type === 'done') {
+                meta += evt.saved ? ` · 已入库 #${evt.chat_id}` : ' · 未入库';
+              }
+            }
+          }
+          $('chatMeta').textContent = meta;
+          log(`AI 回答 ${answer.length} 字（${meta}）`, 'hit');
+        } catch (err) {
+          bubble.textContent = `回答失败：${err.message}`;
+          log(`问答失败：${err.message}`, 'err');
+        } finally {
+          $('btnChat').disabled = false;
+          $('chatInput').focus();
+        }
+      }
+
+      $('btnChat').addEventListener('click', sendChat);
+      $('chatInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') sendChat();
+      });
+
+      $('btnUseRecog').addEventListener('click', () => {
+        if (!lastRecog) {
+          log('还没有识别结果可带入：先比 🤞 / 🤟，或点「用示例图」', 'err');
+          return;
+        }
+        chatContext = lastRecog.result;
+        $('chatInput').value = `这张图识别到「${lastRecog.label}」，能帮我解读一下吗？`;
+        $('chatInput').focus();
+        log('已把识别结果带入问答上下文');
+      });
+
+      // ---------- 截屏（不依赖摄像头，用来单独验证 M3-2） ----------
+      $('btnShot').addEventListener('click', async () => {
+        const c = ctrl || buildController(); // 没启动识别也能截屏，方便无摄像头时验收
+        $('btnShot').disabled = true;
+        try {
+          // 截完立刻滚回原位，免得"按了截屏页面自己跳"
+          await c.captureScreenshot();
+        } catch (err) {
+          log(`截屏失败：${err.message}`, 'err');
+          showHint(`截屏失败：${err.message}`);
+        } finally {
+          $('btnShot').disabled = false;
+        }
+      });
+
+      $('btnShotDownload').addEventListener('click', () => {
+        const latest = ctrl?.screenshots.latest;
+        if (!latest) {
+          log('还没有截图可下载', 'err');
+          return;
+        }
+        ctrl.downloadScreenshot(latest);
+        log(`已下载截图 ${latest.width}×${latest.height}`);
+      });
+
       $('endpoint').addEventListener('change', () => {
         setEndpoint($('endpoint').value);
         probeServer();
+        probeChat();
       });
 
       setIdle();

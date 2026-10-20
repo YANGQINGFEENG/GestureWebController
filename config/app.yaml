@@ -29,3 +29,30 @@ records:
   enabled: true
   # 单用户保留条数上限，超过后最早记录在写入时被清理（0 = 不限制）
   max_per_user: 0
+
+upload:
+  # 图片识别（M3）把图片落盘，库里只存相对路径；前端通过 /media/uploads/... 访问
+  # 关闭后识别照常返回结果，只是 img_path 为空、无法回看原图
+  enabled: true
+  # 相对仓库根目录；该目录不在 data 根下直接暴露，必须走 /media 挂载（ADR-014）
+  dir: data/uploads
+  # 长边超过此值时等比缩小再存，避免手机原图把磁盘吃满
+  max_side: 1280
+  jpeg_quality: 82
+  # 图片识别单张上限，比视频帧的 4MB 宽（手机原图通常 3~6MB）
+  max_bytes: 8388608
+  # 自动清理多少天前的旧图（0 = 不清理）；启动时执行一次
+  keep_days: 0
+
+llm:
+  # 问答能力（M3-5）
+  #   mock   —— 离线规则回答：不联网、不花钱，答辩现场断网也能演示（默认）
+  #   openai —— 任何 OpenAI 兼容接口（OpenAI / DeepSeek / 通义 / 本地 Ollama 都能用这套协议）
+  provider: mock
+  base_url: https://api.openai.com/v1
+  # 强烈建议用环境变量 GWC_LLM_API_KEY，不要提交到仓库
+  api_key: ""
+  model: gpt-4o-mini
+  timeout: 60
+  # 送入模型的最近几轮对话（含本轮），越多越贵
+  history: 4

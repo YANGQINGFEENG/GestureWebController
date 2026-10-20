@@ -116,10 +116,50 @@ class RecordConfig:
 
 
 @dataclass(frozen=True)
+class UploadConfig:
+    """图片识别的落盘策略。图片只存磁盘，库里记相对路径（ADR-014）。"""
+
+    enabled: bool = True
+    dir: Path = ROOT / "data" / "uploads"
+    max_side: int = 1280
+    jpeg_quality: int = 82
+    max_bytes: int = 8 * 1024 * 1024
+    keep_days: int = 0
+
+    @property
+    def url_prefix(self) -> str:
+        """对外访问前缀，与 main.py 里挂载的 /media/uploads 对应。"""
+        return "/media/uploads"
+
+
+@dataclass(frozen=True)
+class LlmConfig:
+    """问答模型。provider=mock 时完全离线，不读 api_key（ADR-017）。"""
+
+    provider: str = "mock"
+    base_url: str = "https://api.openai.com/v1"
+    api_key: str = ""
+    model: str = "gpt-4o-mini"
+    timeout: float = 60.0
+    history: int = 4
+
+    @property
+    def is_mock(self) -> bool:
+        return self.provider.strip().lower() in {"", "mock", "offline", "none"}
+
+    @property
+    def usable(self) -> bool:
+        """能否真的发请求：要么 mock，要么有 key。"""
+        return self.is_mock or bool(self.api_key)
+
+
+@dataclass(frozen=True)
 class AppConfig:
     database: DatabaseConfig
     auth: AuthConfig
     records: RecordConfig
+    upload: UploadConfig
+    llm: LlmConfig
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -149,6 +189,14 @@ def load_app_config() -> AppConfig:
     db = raw.get("database") or {}
     auth = raw.get("auth") or {}
     records = raw.get("records") or {}
+    upload = raw.get("upload") or {}
+    llm = raw.get("llm") or {}
+
+    upload_dir = Path(
+        os.getenv("GWC_UPLOAD_DIR") or str(upload.get("dir", "data/uploads"))
+    )
+    if not upload_dir.is_absolute():
+        upload_dir = ROOT / upload_dir
 
     return AppConfig(
         database=DatabaseConfig(
@@ -167,6 +215,22 @@ def load_app_config() -> AppConfig:
         records=RecordConfig(
             enabled=_env_bool("GWC_RECORDS_ENABLED", bool(records.get("enabled", True))),
             max_per_user=int(records.get("max_per_user", 0)),
+        ),
+        upload=UploadConfig(
+            enabled=_env_bool("GWC_UPLOAD_ENABLED", bool(upload.get("enabled", True))),
+            dir=upload_dir,
+            max_side=int(upload.get("max_side", 1280)),
+            jpeg_quality=int(upload.get("jpeg_quality", 82)),
+            max_bytes=int(upload.get("max_bytes", 8 * 1024 * 1024)),
+            keep_days=int(upload.get("keep_days", 0)),
+        ),
+        llm=LlmConfig(
+            provider=os.getenv("GWC_LLM_PROVIDER") or str(llm.get("provider", "mock")),
+            base_url=(os.getenv("GWC_LLM_BASE_URL") or str(llm.get("base_url", ""))).rstrip("/"),
+            api_key=os.getenv("GWC_LLM_API_KEY") or str(llm.get("api_key") or ""),
+            model=os.getenv("GWC_LLM_MODEL") or str(llm.get("model", "gpt-4o-mini")),
+            timeout=float(llm.get("timeout", 60)),
+            history=int(llm.get("history", 4)),
         ),
     )
 

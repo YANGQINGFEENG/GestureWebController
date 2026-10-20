@@ -101,6 +101,14 @@
       .recog { padding: 12px 16px; font-size: 13px; color: #c3cce0; white-space: pre-wrap; }
       .recog:empty { display: none; }
       .recog b { color: #ffe08a; }
+      .chat { max-height: 280px; overflow-y: auto; padding: 12px 16px; display: grid; gap: 8px; }
+      .chat .msg { font-size: 13px; line-height: 1.6; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap; max-width: 92%; }
+      .chat .me { background: #1c2a4d; color: #dbe6ff; justify-self: end; }
+      .chat .ai { background: #101728; border: 1px solid var(--line); color: #c3cce0; justify-self: start; }
+      #chatInput {
+        flex: 1; min-width: 150px; font: inherit; font-size: 13px; color: var(--text);
+        background: #0d1425; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px;
+      }
       button.pulse { animation: pulse 1.1s ease-in-out 3; border-color: var(--accent); }
       @keyframes pulse {
         0%, 100% { box-shadow: 0 0 0 0 rgba(79, 140, 255, 0); }
@@ -173,6 +181,16 @@
           <div id="log"></div>
         </section>
         <section class="card">
+          <h2>AI 问答（可带上识别结果）</h2>
+          <div class="chat" id="chatLog"></div>
+          <div class="controls">
+            <input type="text" id="chatInput" placeholder="问问手势、识别或记录相关的问题…" />
+            <button class="primary" id="btnChat">发送</button>
+            <button id="btnUseRecog">带上识别结果</button>
+          </div>
+          <div class="shot-meta" id="chatMeta"></div>
+        </section>
+        <section class="card">
           <h2>动作验证区（下翻页应能看到本段滚动）</h2>
           <div class="article" id="article">
             <h3>用手势翻页</h3>
@@ -200,6 +218,8 @@
       let ctrl = null;
       let currentKind = '';
       let pendingPick = null; // 🤞 触发时挂起的选图 Promise
+      let lastRecog = null; // 最近一次识别结果，用于"带入问答"
+      let chatContext = ''; // 当前问答附带的识别结果文本
 
       const apiBase = () => $('endpoint').value.replace(/\/+$/, '');
       const absUrl = (u) => (!u ? '' : u.startsWith('http') ? u : `${apiBase()}${u}`);
@@ -256,6 +276,7 @@
         }
       }
       probeServer();
+      probeChat();
 
       // ---------- 账号状态 ----------
       function refreshAccount() {
@@ -415,6 +436,7 @@
       // ---------- 图片识别（M3-3 🤞 / M3-4 🤟） ----------
       function renderRecognition(data) {
         if (!data) return;
+        lastRecog = data;
         const img = $('recogImage');
         img.hidden = !data.img_url;
         img.src = absUrl(data.img_url) || '';
@@ -496,6 +518,110 @@
         }
       });
 
+      // ---------- AI 问答（M3-5，SSE 流式） ----------
+      function appendChat(role, text) {
+        const el = document.createElement('div');
+        el.className = `msg ${role}`;
+        el.textContent = text;
+        $('chatLog').appendChild(el);
+        $('chatLog').scrollTop = $('chatLog').scrollHeight;
+        return el;
+      }
+
+      async function probeChat() {
+        try {
+          const res = await fetch(`${apiBase()}/api/chat/info`, { signal: AbortSignal.timeout(4000) });
+          const data = await res.json();
+          const info = data.llm || {};
+          $('chatMeta').textContent =
+            `模型：${info.provider} / ${info.model}${info.note ? ` · ${info.note}` : ''}`;
+        } catch {
+          /* 后端没起时由发送按钮给出更明确的错误 */
+        }
+      }
+
+      async function sendChat() {
+        const question = $('chatInput').value.trim();
+        if (!question) return;
+
+        $('chatInput').value = '';
+        $('btnChat').disabled = true;
+        appendChat('me', question);
+        const bubble = appendChat('ai', '…');
+        let answer = '';
+        let meta = '';
+
+        try {
+          const headers = { 'Content-Type': 'application/json' };
+          const token = getToken();
+          if (token) headers.Authorization = `Bearer ${token}`;
+          const res = await fetch(`${apiBase()}/api/chat`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ question, context: chatContext }),
+          });
+          if (!res.ok || !res.body) throw new Error(`问答接口返回 ${res.status}`);
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const blocks = buffer.split('\n\n');
+            buffer = blocks.pop() || '';
+            for (const block of blocks) {
+              const line = block.trim();
+              if (!line.startsWith('data:')) continue;
+              let evt;
+              try {
+                evt = JSON.parse(line.slice(5).trim());
+              } catch {
+                continue;
+              }
+              if (evt.type === 'start') {
+                meta = `${evt.provider} / ${evt.model}`;
+                if (evt.note) log(`问答：${evt.note}`);
+              } else if (evt.type === 'delta') {
+                answer += evt.text;
+                bubble.textContent = answer;
+                $('chatLog').scrollTop = $('chatLog').scrollHeight;
+              } else if (evt.type === 'error') {
+                bubble.textContent = `${answer}\n[出错] ${evt.message}`;
+                log(`问答出错：${evt.message}`, 'err');
+              } else if (evt.type === 'done') {
+                meta += evt.saved ? ` · 已入库 #${evt.chat_id}` : ' · 未入库';
+              }
+            }
+          }
+          $('chatMeta').textContent = meta;
+          log(`AI 回答 ${answer.length} 字（${meta}）`, 'hit');
+        } catch (err) {
+          bubble.textContent = `回答失败：${err.message}`;
+          log(`问答失败：${err.message}`, 'err');
+        } finally {
+          $('btnChat').disabled = false;
+          $('chatInput').focus();
+        }
+      }
+
+      $('btnChat').addEventListener('click', sendChat);
+      $('chatInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') sendChat();
+      });
+
+      $('btnUseRecog').addEventListener('click', () => {
+        if (!lastRecog) {
+          log('还没有识别结果可带入：先比 🤞 / 🤟，或点「用示例图」', 'err');
+          return;
+        }
+        chatContext = lastRecog.result;
+        $('chatInput').value = `这张图识别到「${lastRecog.label}」，能帮我解读一下吗？`;
+        $('chatInput').focus();
+        log('已把识别结果带入问答上下文');
+      });
+
       // ---------- 截屏（不依赖摄像头，用来单独验证 M3-2） ----------
       $('btnShot').addEventListener('click', async () => {
         const c = ctrl || buildController(); // 没启动识别也能截屏，方便无摄像头时验收
@@ -524,6 +650,7 @@
       $('endpoint').addEventListener('change', () => {
         setEndpoint($('endpoint').value);
         probeServer();
+        probeChat();
       });
 
       setIdle();

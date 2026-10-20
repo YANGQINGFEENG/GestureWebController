@@ -114,6 +114,33 @@ def get_bytes(base: str, path: str) -> tuple[int, bytes]:
         return exc.code, b""
 
 
+def post_sse(
+    base: str, path: str, body: dict, token: str | None = None, timeout: int = 60
+) -> tuple[int, list[dict]]:
+    """读完整条 SSE 流并解析出事件列表（问答是流式的，不能只读第一段）。"""
+    req = urllib.request.Request(
+        f"{base}{path}", data=json.dumps(body, ensure_ascii=False).encode("utf-8"), method="POST"
+    )
+    req.add_header("Content-Type", "application/json")
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    events: list[dict] = []
+    try:
+        with _OPENER.open(req, timeout=timeout) as resp:
+            status = resp.status
+            for raw in resp:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                try:
+                    events.append(json.loads(line[5:].strip()))
+                except json.JSONDecodeError:
+                    continue
+            return status, events
+    except urllib.error.HTTPError as exc:
+        return exc.code, events
+
+
 def rand_name(prefix: str = "m3_") -> str:
     return prefix + "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
 
@@ -131,6 +158,7 @@ def main() -> int:
     image_path = Path(args.image)
 
     print(f"目标服务：{base}\n测试图片：{image_path}\n" + "-" * 72)
+    token = ""
     if not image_path.exists():
         print(f"{FAIL} 测试图片不存在：{image_path}")
         print("  可先跑 python scripts/predict_image.py --help 了解可用素材，或用 --image 指定")
@@ -148,6 +176,10 @@ def main() -> int:
           f"HTTP {code} / {len(health.get('gestures', []))} 个")
 
     # ---- 1. 主链路：上传识别 ----
+    # 预热：首个请求要加载权重（本机约 3s）。不预热会让下面"总耗时 < 3s"的断言误报，
+    # 而这条断言的意图是"稳定状态下够快"，不是"冷启动也够快"。
+    post_image(base, "/api/image/recognize", content=shot, fields={"source": "upload"})
+
     code, res = post_image(base, "/api/image/recognize", content=shot, fields={"source": "upload"},
                            token=None)
     check("上传识别返回 200", code == 200 and res.get("ok") is True, f"HTTP {code}")
@@ -247,6 +279,43 @@ def main() -> int:
     code, res3 = post_image(base, "/api/image/recognize", content=shot, fields={"conf": "0.99"})
     check("阈值拉高后仍返回可读解释", code == 200 and len(res3.get("result", "")) > 8,
           str(res3.get("result"))[:48])
+
+    # ---- 7. AI 问答（SSE 流式） ----
+    code, info = get(base, "/api/chat/info")
+    provider = (info.get("llm") or {}).get("provider")
+    check("问答模型信息可读", code == 200 and bool(provider), f"provider={provider}")
+
+    code, events = post_sse(base, "/api/chat", {"question": "支持哪些手势？"})
+    kinds = [e.get("type") for e in events]
+    answer = "".join(e.get("text", "") for e in events if e.get("type") == "delta")
+    done = next((e for e in events if e.get("type") == "done"), {})
+    check("问答返回 SSE 流（start → delta → done）",
+          code == 200 and kinds[:1] == ["start"] and "delta" in kinds and kinds[-1:] == ["done"],
+          f"HTTP {code} / {len(events)} 个事件")
+    check("流式拼出的回答非空", len(answer) > 10, f"{len(answer)} 字")
+    check("回答内容覆盖手势清单", all(k in answer for k in ("下翻页", "上翻页", "截屏")), answer[:24])
+    if db_ok:
+        check("问答已入库并返回 chat_id",
+              done.get("saved") is True and bool(done.get("chat_id")), f"chat_id={done.get('chat_id')}")
+
+    code, events2 = post_sse(base, "/api/chat",
+                             {"question": "这个结论什么意思？",
+                              "context": "识别到 🖐️ 张开手掌，置信度 73.9%"})
+    answer2 = "".join(e.get("text", "") for e in events2 if e.get("type") == "delta")
+    check("带识别上下文时回答引用该结论", code == 200 and "识别" in answer2, answer2[:30])
+
+    code, _ = post_sse(base, "/api/chat", {"question": ""})
+    check("空问题返回 422", code == 422, f"HTTP {code}")
+
+    code, _ = post_sse(base, "/api/chat", {"question": "x" * 2001})
+    check("超长问题返回 422", code == 422, f"HTTP {code}")
+
+    if db_ok and token:
+        # 先用同一个账号问一句，才能验证"自己的问答记录"能查到（游客记录 uid 为 null，查不到是正确行为）
+        post_sse(base, "/api/chat", {"question": "我这条问答会记录吗？"}, token=token)
+        code, listing = get(base, "/api/records/chat?limit=10", token=token)
+        ids = [item.get("chat_id") for item in listing.get("items", [])]
+        check("个人中心能查到问答记录", code == 200 and len(ids) >= 1, f"共 {len(ids)} 条")
 
     # ---- 汇总 ----
     print("-" * 72)

@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
-from backend.app.api import admin, auth, predict, recognize, records, system
+from backend.app.api import admin, auth, chat, predict, recognize, records, system
 from backend.app.core.config import load_app_config
 from backend.app.db import session as db_session
 from backend.app.db.seed import ensure_admin
@@ -46,6 +46,7 @@ app.add_middleware(
 
 app.include_router(predict.router)
 app.include_router(recognize.router)
+app.include_router(chat.router)
 app.include_router(auth.router)
 app.include_router(records.router)
 app.include_router(admin.router)
@@ -68,6 +69,7 @@ async def index() -> dict:
         "status": "/api/system/status",
         "predict": "POST /api/predict",
         "recognize": "POST /api/image/recognize",
+        "chat": "POST /api/chat（SSE 流式）",
         "auth": ["POST /api/auth/register", "POST /api/auth/login", "GET /api/auth/me"],
         "records": "GET/POST /api/records/gesture",
     }

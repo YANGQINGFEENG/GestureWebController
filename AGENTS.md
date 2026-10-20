@@ -26,8 +26,8 @@
 
 ```
 backend/app/
-  api/          路由层：predict / recognize / auth / records / admin / system / deps(依赖注入) / common(上传校验)
-  services/    业务层：detector(YOLO推理) / storage(图片落盘) / describe(结果文案)（M3 加 ai_chat）
+  api/          路由层：predict / recognize / chat / auth / records / admin / system / deps(依赖注入) / common(上传校验)
+  services/    业务层：detector(YOLO推理) / storage(图片落盘) / describe(结果文案) / llm(问答双 provider)
   db/           数据层：models(四张表) / session / repository(全部查询) / seed
   core/         配置加载、密码哈希与 JWT
 frontend/pages/ 页面：index(演示主页) / profile(个人中心) / selfcheck(截屏自检)（M4 加 admin / embed-demo）
@@ -93,7 +93,7 @@ git add -A && git commit -m "feat: xxx"
 node scripts/test_sdk.mjs            # 防抖纯逻辑（9 用例）
 node scripts/test_controller.mjs     # SDK 主循环 + 动作 + 上报（15 用例，DOM 桩）
 python scripts/test_api_m2.py        # 账号与记录接口（34 用例，需后端已启动）
-python scripts/test_api_m3.py        # 图片识别接口 + 落盘 + 回看（31 用例，需后端已启动）
+python scripts/test_api_m3.py        # 图片识别 + 问答 SSE + 落盘回看（40 用例，需后端已启动）
 python scripts/check_gesture_map.py  # 配置里的类别名与权重是否匹配
 
 # 需要浏览器（截屏只在浏览器里成立）：先起静态服务，再跑自检

@@ -133,11 +133,33 @@ class UploadConfig:
 
 
 @dataclass(frozen=True)
+class LlmConfig:
+    """问答模型。provider=mock 时完全离线，不读 api_key（ADR-017）。"""
+
+    provider: str = "mock"
+    base_url: str = "https://api.openai.com/v1"
+    api_key: str = ""
+    model: str = "gpt-4o-mini"
+    timeout: float = 60.0
+    history: int = 4
+
+    @property
+    def is_mock(self) -> bool:
+        return self.provider.strip().lower() in {"", "mock", "offline", "none"}
+
+    @property
+    def usable(self) -> bool:
+        """能否真的发请求：要么 mock，要么有 key。"""
+        return self.is_mock or bool(self.api_key)
+
+
+@dataclass(frozen=True)
 class AppConfig:
     database: DatabaseConfig
     auth: AuthConfig
     records: RecordConfig
     upload: UploadConfig
+    llm: LlmConfig
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -168,6 +190,7 @@ def load_app_config() -> AppConfig:
     auth = raw.get("auth") or {}
     records = raw.get("records") or {}
     upload = raw.get("upload") or {}
+    llm = raw.get("llm") or {}
 
     upload_dir = Path(
         os.getenv("GWC_UPLOAD_DIR") or str(upload.get("dir", "data/uploads"))
@@ -200,6 +223,14 @@ def load_app_config() -> AppConfig:
             jpeg_quality=int(upload.get("jpeg_quality", 82)),
             max_bytes=int(upload.get("max_bytes", 8 * 1024 * 1024)),
             keep_days=int(upload.get("keep_days", 0)),
+        ),
+        llm=LlmConfig(
+            provider=os.getenv("GWC_LLM_PROVIDER") or str(llm.get("provider", "mock")),
+            base_url=(os.getenv("GWC_LLM_BASE_URL") or str(llm.get("base_url", ""))).rstrip("/"),
+            api_key=os.getenv("GWC_LLM_API_KEY") or str(llm.get("api_key") or ""),
+            model=os.getenv("GWC_LLM_MODEL") or str(llm.get("model", "gpt-4o-mini")),
+            timeout=float(llm.get("timeout", 60)),
+            history=int(llm.get("history", 4)),
         ),
     )
 

@@ -1,6 +1,6 @@
 # GestureWebController
 
-> 基于 YOLOv8 手势识别的 Web 智能演示控制系统 —— 一套可嵌入任意网页的**手势控制 SDK**。
+> 基于 YOLO 手势识别（YOLOv10n + HaGRIDv2 34 类权重）的 Web 智能演示控制系统 —— 一套可嵌入任意网页的**手势控制 SDK**。
 
 前端采集摄像头视频流，后端用 YOLO 预训练权重做手势检测，识别结果映射为网页交互指令（上翻 / 下翻 / 截屏 / 确定 / 触发图片识别 / 截屏 + AI 搜索），由前端 JS 直接操控当前页面。工具解耦设计，业务页面只需引入一个脚本即可接入。
 
@@ -15,7 +15,13 @@
 | 让 AI 助手接手 | [`AGENTS.md`](AGENTS.md) |
 | 完整需求与计划 | [`docs/GestureWebController需求文档.md`](docs/GestureWebController需求文档.md)、[`docs/技术选型与开发计划.md`](docs/技术选型与开发计划.md) |
 
-> 跑起来三连：`python scripts/download_model.py` → `sh scripts/install_hooks.sh` → `python scripts/check_gesture_map.py`
+> **跑起来只要一条命令**：
+>
+> - Windows：双击 `start.bat`（或在终端执行 `start.bat`）
+> - macOS / Linux：`./start.sh`
+>
+> 它会自动建虚拟环境、装依赖、下权重、自检配置，最后同时起后端（8000）与演示页（8080）。
+> 想先看看环境齐不齐：`start.bat --check`（不启动服务，只打印结论）。
 
 
 ---
@@ -64,17 +70,18 @@ python scripts/check_gesture_map.py
 GestureWebController/
 ├── backend/                 # 后端推理服务（FastAPI）
 │   └── app/
-│       ├── api/             # 路由：predict / auth / records / admin / system
-│       ├── services/        # YOLO 推理（唯一 import ultralytics 的地方）
+│       ├── api/             # 路由：predict / recognize / chat / auth / records / admin / system
+│       ├── services/        # YOLO 推理（唯一 import ultralytics 的地方）/ 图片落盘 / 结果文案 / LLM
 │       ├── db/              # 四张表的 ORM 模型、会话、数据访问、种子数据
 │       └── core/            # 配置加载、密码哈希与 JWT
 ├── frontend/                # 业务站点页面
-│   ├── pages/               # 演示主页 / 个人中心（后续：AI 问答 / 后台）
-│   └── assets/              # 样式、登录态与接口封装
+│   ├── pages/               # 演示主页 / 个人中心 / 后台管理 / 嵌入示例 / 截屏自检
+│   └── assets/              # 登录态与接口封装（auth.js）
 ├── sdk/                     # 可复用前端 SDK（构建产物放 dist/）
 ├── models/                  # 模型权重存放目录（权重不入库）
 ├── config/                  # 手势映射（gesture_map.json）、模型参数、应用配置（app.yaml）
-├── scripts/                 # 一键启动、下载权重、批量测试、接口测试
+├── start.bat / start.sh     # 一键入口：自举环境 + 起服务（逻辑在 scripts/bootstrap.py）
+├── scripts/                 # 自举、启动、下载权重、批量测试、接口与页面自检
 ├── data/                    # 运行期数据：数据库、上传图片、截图（全部不入库）
 └── docs/                    # 需求文档、决策记录、进度看板、交接说明
 ```
@@ -83,27 +90,56 @@ GestureWebController/
 
 ---
 
-## 快速接入（设计目标 API）
+## 快速接入（9 行）
+
+```html
+<canvas id="cam" width="320" height="240"></canvas>
+
+<script type="module">
+  import { GestureWebController } from './sdk/src/index.js';
+
+  const ctrl = new GestureWebController({
+    canvas: document.querySelector('#cam'),
+    endpoint: 'http://127.0.0.1:8000',
+    fps: 8,
+  });
+
+  await ctrl.start();                                   // 默认开摄像头
+  window.addEventListener('pagehide', () => ctrl.stop());
+</script>
+```
+
+接完就能用：翻页 / 截屏 / 点击都由 SDK 的默认动作接管，业务页一行都不用写。
+想看真实效果，打开 [`frontend/pages/embed-demo.html`](frontend/pages/embed-demo.html) —— 那是一个普通长文页，
+除了上面这段代码没有任何本项目的东西。
+
+需要定制时：
 
 ```js
-const gestureCtrl = new GestureWebController({
-  apiUrl: "http://127.0.0.1:8000/predict",
-  enableVisual: true,
-  debounceFrame: 3,
-  confThreshold: 0.7,
-  enableImageRec: true,
-  enableScreenshotSearch: true
+// 1. 覆盖某个动作（其余仍用默认）
+const ctrl = new GestureWebController({
+  canvas,
+  actions: { screenshot: ({ shot }) => uploadToMyServer(shot.blob) },
 });
-gestureCtrl.start();
 
-gestureCtrl.on("gestureTrigger", (name) => console.log("触发手势：", name));
-gestureCtrl.on("screenshotSearchDone", (res) => console.log("截图识别：", res.result));
-gestureCtrl.on("imageRecDone", (res) => console.log("图片识别：", res.result));
+// 2. 只听事件，不动默认行为（拿不到 SDK 实例也能听）
+ctrl.on('gestureTrigger', ({ gesture }) => console.log(gesture.id, gesture.action));
+document.addEventListener('gestureweb:action', (e) => console.log(e.detail));
 ```
 
 ---
 
 ## 本地运行
+
+最省事的方式（自动建环境、装依赖、下权重、自检、起服务）：
+
+```bash
+start.bat                 # Windows，双击也可以
+./start.sh                # macOS / Linux
+python scripts/bootstrap.py --check    # 只检查环境，不启动
+```
+
+想手动分步来（排查问题时更有用）：
 
 ```bash
 # 1. 虚拟环境与依赖（清华镜像若拉不到 ultralytics，用 -i 指定官方源）
@@ -115,7 +151,10 @@ pip install -i https://pypi.org/simple -r backend/requirements.txt
 python scripts/download_model.py
 python scripts/check_gesture_map.py     # 应输出 6/6 匹配
 
-# 3. 起服务（仓库根目录执行）
+# 3. 后端 + 静态服务一起起（推荐：跨机器最容易漏的就是静态服务）
+.venv\Scripts\python.exe scripts/start_dev.py
+
+# 或者只起后端，自己另开一个静态服务
 .venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --port 8000
 ```
 
@@ -185,7 +224,17 @@ CPU 实测单帧 28~58ms（YOLOv10n / imgsz 640），模型首次加载约 3s。
 
 打开 http://127.0.0.1:8080/frontend/pages/index.html 即可。
 
-页面支持三种帧来源，**没有摄像头也能跑通整条链路**：
+五个页面各有用途：
+
+| 页面 | 用途 |
+| --- | --- |
+| `index.html` | 演示主页：手势识别、截屏预览、图片识别、AI 问答、动作验证区 |
+| `profile.html` | 个人中心：注册登录、改资料、手势统计与记录分页 |
+| `admin.html` | 后台管理：全站统计、用户管理（改角色 / 删除）、三类记录明细（管理员可见） |
+| `embed-demo.html` | 嵌入示例：一张普通长文页，只接 9 行代码就能用手势 |
+| `selfcheck.html` | 截屏自检页：给无头浏览器读的实测结果，人工打开也能看 |
+
+主页支持三种帧来源，**没有摄像头也能跑通整条链路**：
 
 | 来源 | 用途 |
 | --- | --- |
@@ -193,17 +242,9 @@ CPU 实测单帧 28~58ms（YOLOv10n / imgsz 640），模型首次加载约 3s。
 | 本地视频 | 用录制好的画面反复回放，适合排查"为什么这个手势不触发" |
 | 图片序列 | 每张停留 1.5 秒，用来稳定验证"识别 → 防抖 → 动作执行" |
 
-### SDK 接入（业务页 3 行）
+### SDK 接入
 
-```html
-<canvas id="cam"></canvas>
-<script type="module">
-  import { GestureWebController } from './sdk/src/index.js';
-  const ctrl = new GestureWebController({ canvas: document.querySelector('#cam') });
-  await ctrl.start();                                   // 默认开摄像头
-  ctrl.on('gestureTrigger', ({ gesture }) => console.log(gesture.id, gesture.action));
-</script>
-```
+接入方式与可复制代码见上文[「快速接入（9 行）」](#快速接入9-行)，完整可运行版本是 `frontend/pages/embed-demo.html`。
 
 业务方不想用默认动作实现时，传 `actions: { scroll_down: fn, screenshot: fn }` 整条接管，或用 `ctrl.actions.register(action, fn)` 单独替换。
 
@@ -223,13 +264,34 @@ const ctrl = new GestureWebController({
 
 演示页右上角可进入 `frontend/pages/profile.html`：注册 / 登录、改昵称改密码、手势统计（总数 / 覆盖手势 / 平均置信度 / 近 7 天）、手势分布条、记录列表分页与删除。
 
+### 后台管理
+
+用管理员账号（默认 `admin / admin123456`，**演示前务必改掉**）打开 `frontend/pages/admin.html`：
+
+- 六项统计：注册用户 / 手势记录 / 图片识别 / 问答记录 / 覆盖手势 / 平均置信度
+- 手势分布条形图 + 近 7 天触发趋势
+- 用户管理：按账号或昵称搜索、看每人三类记录条数、改角色、删除（连带删记录，二次确认）
+- 记录明细：手势 / 图片 / 问答三个 tab，图片可直接点开原图
+
+非管理员访问后台接口一律 403；不能改自己的角色、不能删自己、不能删掉最后一个管理员——这三条都在服务端强制（见 `docs/决策记录.md` ADR-018）。
+
 ### 测试
 
 ```bash
-node scripts/test_sdk.mjs           # 防抖纯逻辑：9 个用例（无需浏览器）
-node scripts/test_controller.mjs    # 主循环集成：12 个用例（DOM 桩 + 上报，无需摄像头）
-python scripts/test_api_m2.py       # 接口端到端：34 个用例（需后端已启动）
+# 不需要浏览器
+node scripts/test_sdk.mjs             # 防抖纯逻辑：9 个用例
+node scripts/test_controller.mjs      # 主循环 + 动作 + 上报：15 个用例（DOM 桩，无需摄像头）
+python scripts/test_api_m2.py         # 账号与记录接口：34 个用例（需后端已启动）
+python scripts/test_api_m3.py         # 图片识别 + 问答 SSE + 落盘回看：40 个用例
+python scripts/test_api_m4.py         # 后台管理：42 个用例（鉴权边界 / 统计口径 / 用户管理 / 级联删除）
+
+# 需要真浏览器（截屏和页面渲染只能真渲染一次才验得出来）
+node scripts/check_screenshot.mjs     # 截屏链路：5 个断言
+node scripts/check_admin.mjs          # 后台页面：17 个断言（--screenshot 可存整页图）
+node scripts/check_embed.mjs          # 嵌入示例页：10 个断言（走示例图，无摄像头也能跑）
 ```
+
+当前基线：**9/9 + 15/15 + 34/34 + 40/40 + 42/42 + 5/5 + 17/17 + 10/10 全绿**。
 
 ---
 

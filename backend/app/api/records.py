@@ -121,7 +121,13 @@ def list_images(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> dict:
     rows = repository.list_image_records(db, uid=user.uid, limit=limit, offset=offset)
-    return {"ok": True, "items": [row.to_dict() for row in rows]}
+    return {
+        "ok": True,
+        "total": repository.count_image_records(db, uid=user.uid),
+        "limit": limit,
+        "offset": offset,
+        "items": [row.to_dict() for row in rows],
+    }
 
 
 @router.get("/chat", summary="我的问答记录", dependencies=[Depends(require_db)])
@@ -132,4 +138,10 @@ def list_chats(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> dict:
     rows = repository.list_chat_records(db, uid=user.uid, limit=limit, offset=offset)
-    return {"ok": True, "items": [row.to_dict() for row in rows]}
+    return {
+        "ok": True,
+        "total": repository.count_chat_records(db, uid=user.uid),
+        "limit": limit,
+        "offset": offset,
+        "items": [row.to_dict() for row in rows],
+    }

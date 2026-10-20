@@ -104,7 +104,50 @@ gestureCtrl.on("imageRecDone", (res) => console.log("图片识别：", res.resul
 
 ## 本地运行
 
-> 环境搭建与启动步骤在首个可运行版本完成后补齐，当前仓库为工程骨架。
+```bash
+# 1. 虚拟环境与依赖（清华镜像若拉不到 ultralytics，用 -i 指定官方源）
+python -m venv .venv
+.venv\Scripts\activate            # macOS/Linux: source .venv/bin/activate
+pip install -i https://pypi.org/simple -r backend/requirements.txt
+
+# 2. 权重（22MB，不入库）
+python scripts/download_model.py
+python scripts/check_gesture_map.py     # 应输出 6/6 匹配
+
+# 3. 起服务（仓库根目录执行）
+.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --port 8000
+```
+
+打开 http://127.0.0.1:8000/docs 可直接试接口；`GWC_PRELOAD=1` 可让服务启动即加载模型（首次推理不用等）。
+
+### 接口自测
+
+```bash
+curl http://127.0.0.1:8000/api/health
+
+curl -X POST http://127.0.0.1:8000/api/predict \
+  -F "frame=@data/testshots/single/r4c6.jpg;type=image/jpeg"
+```
+
+返回示例：
+
+```json
+{"ok": true, "infer_ms": 52.8, "image_size": [426, 256],
+ "gestures": [{"class": "rock", "id": "love_you", "label": "爱与和平", "emoji": "🤟",
+               "action": "screenshot_ai_search", "conf": 0.7976,
+               "box": [100.7, 27.5, 126.4, 67.2]}]}
+```
+
+### 只想测几张照片
+
+不用起服务，直接跑本地图片批量检测（手机拍的照片丢进一个目录即可）：
+
+```bash
+python scripts/predict_image.py 你的图片目录/ --annotate out/
+```
+
+CPU 实测单帧 28~58ms（YOLOv10n / imgsz 640），模型首次加载约 3s。
+
 
 ---
 

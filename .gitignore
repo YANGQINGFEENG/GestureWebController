@@ -22,7 +22,8 @@ models/*.engine
 models/*.pth
 !models/README.md
 
-# ===== 运行期数据（数据库 / 上传 / 截图）=====
+# ===== 运行期数据（数据库 / 上传 / 截图 / 本地测试图）=====
+data/testshots/
 data/*.db
 data/*.sqlite
 data/*.sqlite3

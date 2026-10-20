@@ -39,15 +39,38 @@ def collect(paths: list[str]) -> list[Path]:
     return files
 
 
+_FONT_CANDIDATES = (
+    "C:/Windows/Fonts/msyh.ttc",  # 微软雅黑（Windows）
+    "C:/Windows/Fonts/simhei.ttf",  # 黑体
+    "/System/Library/Fonts/PingFang.ttc",  # 苹方（macOS）
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",  # Noto CJK（Linux）
+)
+
+
+def _load_font(size: int = 16):
+    """优先加载中文字体；都没有则返回 None，标注文字退回英文类名。"""
+    from PIL import ImageFont
+
+    for path in _FONT_CANDIDATES:
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    return None
+
+
 def annotate(src: Path, result: dict, out_dir: Path) -> Path:
     from PIL import Image, ImageDraw
 
     image = Image.open(src).convert("RGB")
     draw = ImageDraw.Draw(image)
+    font = _load_font(16)
     for g in result["gestures"]:
         x1, y1, x2, y2 = g["box"]
+        # 无中文字体时退回英文类名，避免画出乱码方块
+        text = f"{g['label']} {g['conf']:.2f}" if font else f"{g['class']} {g['conf']:.2f}"
         draw.rectangle([x1, y1, x2, y2], outline=(255, 59, 48), width=3)
-        draw.text((x1 + 4, max(y1 - 14, 2)), f"{g['label']} {g['conf']:.2f}", fill=(255, 59, 48))
+        draw.text((x1 + 4, max(y1 - 18, 2)), text, fill=(255, 59, 48), font=font)
     out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / f"{src.stem}_detected{src.suffix}"
     image.save(target)
